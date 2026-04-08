@@ -227,15 +227,16 @@ def predict(input: PredictionInput):
 
     if matches:
         matched_title = matches[0]
+        # Compute how similar the input title is to the matched title (0.0 to 1.0)
+        match_score = difflib.SequenceMatcher(
+            None, input.job_title.lower(), matched_title.lower()
+        ).ratio()
     else:
         # No close match found — fall back to "Other" which was the catch-all
         # bucket created during training for rare / unknown titles
         matched_title = "Other"
-
-    # Compute how similar the input title is to the matched title (0.0 to 1.0)
-    match_score = difflib.SequenceMatcher(
-        None, input.job_title, matched_title
-    ).ratio()
+        # match_score is 0 when we fall back to "Other" — no real match was found
+        match_score = 0.0
 
     # -----------------------------------------------------------------------
     # Step 2: Encode categorical inputs
@@ -306,20 +307,20 @@ def predict(input: PredictionInput):
     # -----------------------------------------------------------------------
     if tier == "Low":
         salary_range = {
-            "low": 0,
-            "high": thresholds["low_max"],
+            "min": 0,
+            "max": thresholds["low_max"],
             "currency": thresholds["currency"]
         }
     elif tier == "Mid":
         salary_range = {
-            "low":  thresholds["low_max"],
-            "high": thresholds["high_min"],
+            "min": thresholds["low_max"],
+            "max": thresholds["high_min"],
             "currency": thresholds["currency"]
         }
     else:  # "High"
         salary_range = {
-            "low":  thresholds["high_min"],
-            "high": None,  # No upper bound for the High tier
+            "min": thresholds["high_min"],
+            "max": None,  # No upper bound for the High tier
             "currency": thresholds["currency"]
         }
 
