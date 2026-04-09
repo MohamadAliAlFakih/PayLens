@@ -31,12 +31,11 @@ supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
 def load_artifacts():
     """Load model artifacts needed for dropdowns and feature importance."""
     encoders   = joblib.load(os.path.join(ROOT_DIR, "model", "encoders.pkl"))
-    thresholds = joblib.load(os.path.join(ROOT_DIR, "model", "thresholds.pkl"))
     benchmarks = joblib.load(os.path.join(ROOT_DIR, "model", "benchmarks.pkl"))
     model      = joblib.load(config.MODEL_PATH)
-    return encoders, thresholds, benchmarks, model
+    return encoders, benchmarks, model
 
-encoders, thresholds, benchmarks, model = load_artifacts()
+encoders, benchmarks, model = load_artifacts()
 
 
 @st.cache_data(ttl=30)  # refresh every 30 seconds so new predictions appear
@@ -100,22 +99,41 @@ def _show_feature_importance(model):
     plt.close(fig)
 
 
+def _draw_range_scale(salary_low, salary_avg, salary_high, offer=None, offer_label="Your Offer"):
+    """Horizontal matplotlib salary range scale with avg marker, low/high anchors, optional offer marker."""
+    fig, ax = plt.subplots(figsize=(8, 2.2))
+    ax.barh([""], [salary_high - salary_low], left=salary_low, color="#3498db", alpha=0.25, height=0.4)
+    ax.plot(salary_avg, 0, marker="v", color="#2980b9", markersize=12, zorder=5)
+    ax.text(salary_avg, 0.28, f"Avg\n${salary_avg:,}", ha="center", va="bottom", fontsize=8, color="#2980b9", fontweight="bold")
+    ax.axvline(salary_low,  color="#95a5a6", linewidth=1.2, linestyle=":")
+    ax.text(salary_low,  -0.32, f"${salary_low:,}",  ha="center", va="top", fontsize=7.5, color="#7f8c8d")
+    ax.axvline(salary_high, color="#95a5a6", linewidth=1.2, linestyle=":")
+    ax.text(salary_high, -0.32, f"${salary_high:,}", ha="center", va="top", fontsize=7.5, color="#7f8c8d")
+    if offer and offer > 0:
+        color = "#27ae60" if offer >= salary_avg else "#e67e22"
+        ax.plot(offer, 0, marker="o", color=color, markersize=11, zorder=6)
+        ax.text(offer, 0.28, f"{offer_label}\n${offer:,}", ha="center", va="bottom", fontsize=8, color=color, fontweight="bold")
+    ax.set_xlim(salary_low * 0.88, salary_high * 1.12)
+    ax.set_yticks([])
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.set_xlabel("Annual Salary (USD)", fontsize=9)
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+
 def _show_benchmark_yourself(result):
     """
-    Visual comparison: user's predicted salary range vs. peer benchmark bars.
+    Visual comparison: user's predicted salary avg vs. peer benchmark bars.
     Shows where the user lands relative to p25, median, p75.
     """
     benchmark = result.get("benchmark", {})
-    salary_range = result.get("salary_range", {})
 
     median = benchmark.get("median", 0)
     p25    = benchmark.get("p25", 0)
     p75    = benchmark.get("p75", 0)
-    sal_min = salary_range.get("min", 0)
-    sal_max = salary_range.get("max")  # None for High tier
-
-    # Use salary_min as the representative "your salary" point
-    your_salary = sal_min
+    your_salary = result.get("salary_avg", 0)
 
     fig, ax = plt.subplots(figsize=(7, 3))
 
@@ -126,8 +144,8 @@ def _show_benchmark_yourself(result):
     # Median line
     ax.axvline(median, color="#2980b9", linewidth=2, linestyle="--", label=f"Peer Median ${median:,}")
 
-    # Your predicted salary floor
-    ax.axvline(your_salary, color="#e74c3c", linewidth=2.5, label=f"Your Salary Min ${your_salary:,}")
+    # Your predicted salary avg
+    ax.axvline(your_salary, color="#e74c3c", linewidth=2.5, label=f"Your Salary Avg ${your_salary:,}")
 
     ax.set_xlabel("Annual Salary (USD)")
     ax.set_title("Your Prediction vs. Peer Benchmark")
@@ -143,35 +161,44 @@ def _show_benchmark_yourself(result):
 
 
 def _show_prediction_result(result):
-    """Display a single prediction result: tier badge, confidence, salary range, narrative, charts."""
-    tier = result.get("prediction", "Unknown")
-    confidence = result.get("confidence_pct", 0)
-    narrative = result.get("narrative", "No narrative available.")
-    salary_range = result.get("salary_range", {})
+    """Display a single prediction result: matched title, salary range scale, offer input, narrative, charts."""
+    salary_low  = result.get("salary_low", 0)
+    salary_avg  = result.get("salary_avg", 0)
+    salary_high = result.get("salary_high", 0)
+    narrative   = result.get("narrative", "No narrative available.")
     matched_title = result.get("matched_job_title", "")
-    match_score = result.get("match_score", 0)
-    benchmark = result.get("benchmark", {})
+    match_score   = result.get("match_score", 0)
+    benchmark     = result.get("benchmark", {})
 
-    # Tier badge with color
-    tier_colors = {"Low": "🟢", "Mid": "🟡", "High": "🔴"}
-    icon = tier_colors.get(tier, "⚪")
-
-    st.markdown(f"## {icon} {tier} Salary Tier")
+    # Headline: matched job title
+    st.markdown(f"## {matched_title}")
 
     # Key metrics in columns
     m1, m2, m3 = st.columns(3)
-    m1.metric("Confidence", f"{confidence}%")
-    m2.metric("Matched Title", matched_title)
-    m3.metric("Match Score", f"{round(match_score * 100)}%")
+    m1.metric("Salary Low",  f"${salary_low:,}")
+    m2.metric("Salary Avg",  f"${salary_avg:,}")
+    m3.metric("Salary High", f"${salary_high:,}")
 
-    # Salary range
-    sal_min = salary_range.get("min", 0)
-    sal_max = salary_range.get("max")
-    range_str = f"${sal_min:,} – ${sal_max:,}" if sal_max else f"Above ${sal_min:,}"
-    st.info(f"**Salary Range:** {range_str}")
+    # Range scale (no offer yet — offer added below via input)
+    st.subheader("Salary Range Scale")
+    offer_input = st.number_input(
+        "Enter your offer amount (USD) to see where it lands:",
+        min_value=0, value=0, step=1000,
+        key="offer_input"
+    )
+    offer_val = int(offer_input) if offer_input and int(offer_input) > 0 else None
+    _draw_range_scale(salary_low, salary_avg, salary_high, offer=offer_val)
+
+    # Offer verdict
+    if offer_val and offer_val > 0:
+        if offer_val >= salary_avg:
+            st.success(f"Your offer of ${offer_val:,} is at or above the average salary. That's a strong offer!")
+        else:
+            st.warning(f"Your offer of ${offer_val:,} is below the average salary of ${salary_avg:,}. There may be room to negotiate.")
 
     # Benchmark
     if benchmark:
+        st.subheader("Peer Benchmark")
         b1, b2, b3, b4 = st.columns(4)
         b1.metric("Peer Median", f"${benchmark.get('median', 0):,}")
         b2.metric("25th Percentile", f"${benchmark.get('p25', 0):,}")
@@ -179,7 +206,7 @@ def _show_prediction_result(result):
         b4.metric("Peer Count", benchmark.get("peer_count", 0))
 
     # Narrative
-    st.subheader("📝 Analyst Report")
+    st.subheader("Analyst Report")
     st.write(narrative or "No narrative available.")
 
     # Charts
@@ -187,7 +214,7 @@ def _show_prediction_result(result):
     chart_peer = result.get("chart_peer_url")
 
     if chart_overview or chart_peer:
-        st.subheader("📊 Visualizations")
+        st.subheader("Visualizations")
         c1, c2 = st.columns(2)
         if chart_overview:
             c1.image(chart_overview, caption="Salary by Experience Level", use_container_width=True)
@@ -195,11 +222,14 @@ def _show_prediction_result(result):
             c2.image(chart_peer, caption="Your Position vs Peers", use_container_width=True)
 
     # Download report button
+    range_str = f"${salary_low:,} – ${salary_high:,}"
     report_text = f"""PayLens Salary Report
 ========================
 Job Title: {matched_title}
-Predicted Tier: {tier} ({confidence}% confidence)
 Salary Range: {range_str}
+  Low:  ${salary_low:,}
+  Avg:  ${salary_avg:,}
+  High: ${salary_high:,}
 
 Peer Benchmark:
   Median: ${benchmark.get('median', 0):,}
@@ -211,18 +241,18 @@ Analyst Report:
 {narrative}
 """
     st.download_button(
-        label="⬇️ Download Report",
+        label="Download Report",
         data=report_text,
         file_name=f"paylens_{matched_title.replace(' ', '_').lower()}.txt",
         mime="text/plain"
     )
 
     # Feature importance
-    with st.expander("🔍 Why did the model predict this? (Feature Importance)", expanded=False):
+    with st.expander("Why did the model predict this? (Feature Importance)", expanded=False):
         _show_feature_importance(model)
 
     # Benchmark yourself visual
-    with st.expander("📐 Benchmark Yourself", expanded=True):
+    with st.expander("Benchmark Yourself", expanded=True):
         _show_benchmark_yourself(result)
 
 
@@ -312,23 +342,29 @@ with tab_history:
         # Summary metrics at the top
         h1, h2, h3 = st.columns(3)
         h1.metric("Total Predictions", len(df))
-        h2.metric("Most Common Tier", df["predicted_tier"].mode()[0] if not df.empty else "—")
-        h3.metric("Avg Confidence", f"{df['confidence_pct'].mean():.1f}%" if not df.empty else "—")
+
+        avg_salary = df["salary_avg"].mean() if "salary_avg" in df.columns else 0
+        h2.metric("Avg Predicted Salary", f"${avg_salary:,.0f}" if avg_salary else "—")
+
+        if "salary_low" in df.columns and "salary_high" in df.columns:
+            avg_spread = (df["salary_high"] - df["salary_low"]).mean()
+            h3.metric("Avg Range Spread", f"${avg_spread:,.0f}" if avg_spread else "—")
+        else:
+            h3.metric("Avg Range Spread", "—")
 
         # Display table with selected columns only
-        display_cols = ["created_at", "matched_job_title", "experience_level",
-                        "predicted_tier", "confidence_pct", "salary_min", "salary_max",
-                        "benchmark_median"]
+        display_cols = [c for c in ["created_at", "matched_job_title", "experience_level",
+                        "salary_low", "salary_avg", "salary_high",
+                        "benchmark_median"] if c in df.columns]
 
         # Rename for readability
         col_labels = {
             "created_at": "Date",
             "matched_job_title": "Job Title",
             "experience_level": "Experience",
-            "predicted_tier": "Tier",
-            "confidence_pct": "Confidence %",
-            "salary_min": "Salary Min",
-            "salary_max": "Salary Max",
+            "salary_low": "Salary Low",
+            "salary_avg": "Salary Avg",
+            "salary_high": "Salary High",
             "benchmark_median": "Peer Median"
         }
 
@@ -349,26 +385,26 @@ with tab_history:
         if st.button("📂 Expand Row", key="expand_row"):
             row = df.iloc[int(selected_idx)]
 
-            tier_colors = {"Low": "🟢", "Mid": "🟡", "High": "🔴"}
-            icon = tier_colors.get(row.get("predicted_tier", ""), "⚪")
+            sal_low  = int(row.get("salary_low",  0) or 0)
+            sal_avg  = int(row.get("salary_avg",  0) or 0)
+            sal_high = int(row.get("salary_high", 0) or 0)
 
-            st.markdown(f"### {icon} {row.get('predicted_tier', 'Unknown')} Tier — {row.get('matched_job_title', '')}")
+            st.markdown(f"### {row.get('matched_job_title', 'Unknown')} — {row.get('experience_level', '')}")
 
             d1, d2, d3 = st.columns(3)
-            d1.metric("Confidence", f"{row.get('confidence_pct', 0)}%")
-            d2.metric("Experience", row.get("experience_level", "—"))
-            d3.metric("Remote", f"{row.get('remote_ratio', '—')}%")
+            d1.metric("Salary Low",  f"${sal_low:,}")
+            d2.metric("Salary Avg",  f"${sal_avg:,}")
+            d3.metric("Salary High", f"${sal_high:,}")
 
-            sal_min = row.get("salary_min", 0)
-            sal_max = row.get("salary_max")
-            range_str = f"${int(sal_min):,} – ${int(sal_max):,}" if sal_max else f"Above ${int(sal_min):,}"
-            st.info(f"**Salary Range:** {range_str}")
+            exp_col, rem_col = st.columns(2)
+            exp_col.metric("Experience", row.get("experience_level", "—"))
+            rem_col.metric("Remote", f"{row.get('remote_ratio', '—')}%")
 
             b1, b2, b3, b4 = st.columns(4)
-            b1.metric("Peer Median", f"${int(row.get('benchmark_median', 0)):,}")
-            b2.metric("25th %ile", f"${int(row.get('benchmark_p25', 0)):,}")
-            b3.metric("75th %ile", f"${int(row.get('benchmark_p75', 0)):,}")
-            b4.metric("Peer Count", int(row.get("benchmark_peers", 0)))
+            b1.metric("Peer Median", f"${int(row.get('benchmark_median', 0) or 0):,}")
+            b2.metric("25th %ile", f"${int(row.get('benchmark_p25', 0) or 0):,}")
+            b3.metric("75th %ile", f"${int(row.get('benchmark_p75', 0) or 0):,}")
+            b4.metric("Peer Count", int(row.get("benchmark_peers", 0) or 0))
 
             st.subheader("📝 Analyst Report")
             st.write(row.get("narrative", "No narrative available."))
@@ -395,37 +431,46 @@ with tab_market:
         mi1, mi2 = st.columns(2)
 
         with mi1:
-            st.markdown("**Tier Distribution**")
-            tier_counts = df_market["predicted_tier"].value_counts()
-            fig1, ax1 = plt.subplots(figsize=(5, 3))
-            colors = {"Low": "#2ecc71", "Mid": "#f39c12", "High": "#e74c3c"}
-            bar_colors = [colors.get(t, "#999") for t in tier_counts.index]
-            ax1.bar(tier_counts.index, tier_counts.values, color=bar_colors)
-            ax1.set_ylabel("Count")
-            ax1.set_title("Salary Tier Distribution")
-            ax1.spines[["top", "right"]].set_visible(False)
-            st.pyplot(fig1)
-            plt.close(fig1)
+            st.markdown("**Salary Distribution**")
+            if "salary_avg" in df_market.columns:
+                fig1, ax1 = plt.subplots(figsize=(5, 3))
+                ax1.hist(df_market["salary_avg"].dropna(), bins=15, color="#3498db", edgecolor="white")
+                ax1.set_xlabel("Predicted Salary Avg (USD)")
+                ax1.set_ylabel("Count")
+                ax1.set_title("Salary Avg Distribution")
+                ax1.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+                ax1.spines[["top", "right"]].set_visible(False)
+                st.pyplot(fig1)
+                plt.close(fig1)
+            else:
+                st.caption("salary_avg column not available.")
 
         with mi2:
-            st.markdown("**Avg Confidence by Tier**")
-            conf_by_tier = df_market.groupby("predicted_tier")["confidence_pct"].mean().sort_values(ascending=False)
-            fig2, ax2 = plt.subplots(figsize=(5, 3))
-            bar_colors2 = [colors.get(t, "#999") for t in conf_by_tier.index]
-            ax2.bar(conf_by_tier.index, conf_by_tier.values, color=bar_colors2)
-            ax2.set_ylabel("Avg Confidence %")
-            ax2.set_title("Confidence by Tier")
-            ax2.spines[["top", "right"]].set_visible(False)
-            st.pyplot(fig2)
-            plt.close(fig2)
+            st.markdown("**Salary Range Spread by Experience**")
+            if "salary_low" in df_market.columns and "salary_high" in df_market.columns and "experience_level" in df_market.columns:
+                df_market = df_market.copy()
+                df_market["range_spread"] = df_market["salary_high"] - df_market["salary_low"]
+                exp_labels = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}
+                spread_by_exp = df_market.groupby("experience_level")["range_spread"].mean().sort_values(ascending=False)
+                spread_by_exp.index = [exp_labels.get(x, x) for x in spread_by_exp.index]
+                fig2, ax2 = plt.subplots(figsize=(5, 3))
+                ax2.bar(spread_by_exp.index, spread_by_exp.values, color="#9b59b6")
+                ax2.set_ylabel("Avg Range Spread (USD)")
+                ax2.set_title("Salary Range Spread by Experience")
+                ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+                ax2.spines[["top", "right"]].set_visible(False)
+                st.pyplot(fig2)
+                plt.close(fig2)
+            else:
+                st.caption("Required salary columns not available.")
 
         mi3, mi4 = st.columns(2)
 
         with mi3:
             st.markdown("**Predictions by Experience Level**")
             exp_counts = df_market["experience_level"].value_counts()
-            exp_labels = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}
-            exp_counts.index = [exp_labels.get(x, x) for x in exp_counts.index]
+            exp_labels_map = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}
+            exp_counts.index = [exp_labels_map.get(x, x) for x in exp_counts.index]
             fig3, ax3 = plt.subplots(figsize=(5, 3))
             ax3.barh(exp_counts.index, exp_counts.values, color="#3498db")
             ax3.set_xlabel("Count")
