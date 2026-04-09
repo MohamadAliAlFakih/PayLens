@@ -3,13 +3,13 @@ api/main.py
 PayLens FastAPI prediction server.
 
 What this does:
-  - Loads the trained Decision Tree model and encoders from disk at startup (once only).
+  - Loads the trained RandomForestRegressor model and encoders from disk at startup (once only).
   - Exposes 5 endpoints:
       GET  /                  - basic health check
-      GET  /health            - model info and tier thresholds
+      GET  /health            - model info and output format
       GET  /supported-inputs  - valid dropdown values for the UI
       GET  /supported-countries - valid employee residence / company location values
-      POST /predict           - takes job details, returns salary tier + benchmark stats
+      POST /predict           - takes job details, returns salary_low / salary_avg / salary_high
 
 Run from the project root (paylens/) with:
   uvicorn api.main:app --reload --port 8000
@@ -41,17 +41,13 @@ import config  # noqa: E402  (must come after sys.path.append)
 
 # =============================================================================
 # PART 2 - LOAD ARTIFACTS AT MODULE LEVEL
-# These four lines run once when uvicorn imports this file.
+# These lines run once when uvicorn imports this file.
 # Putting them here (not inside a function) means every request shares
 # the same objects in memory — no disk I/O per request.
 # =============================================================================
 
 model = joblib.load(config.MODEL_PATH)
 encoders = joblib.load(config.ENCODERS_PATH)
-
-# thresholds.pkl stores {"low_max": int, "high_min": int, "currency": "USD"}
-# It was saved by model/train.py Part 7
-thresholds = joblib.load(os.path.join(ROOT_DIR, "model", "thresholds.pkl"))
 
 # benchmarks.pkl stores a dict of DataFrames, keyed by grouping level.
 # We use "by_experience" which is indexed on raw experience strings: EN / MI / SE / EX
@@ -71,8 +67,6 @@ SUPPORTED_COMPANY_SIZE = list(encoders["company_size"].classes_)
 SUPPORTED_JOB_TITLES   = list(encoders["job_title"].classes_)
 
 # Countries are used both for employee_residence and company_location.
-# We expose all classes the encoder knows about — filtering by confidence
-# threshold is a Phase 7 concern.
 SUPPORTED_COUNTRIES = list(encoders["employee_residence"].classes_)
 
 
@@ -82,8 +76,8 @@ SUPPORTED_COUNTRIES = list(encoders["employee_residence"].classes_)
 
 app = FastAPI(
     title="PayLens API",
-    version="1.0",
-    description="Salary tier prediction for data professionals."
+    version="2.0",
+    description="Salary range prediction for data professionals (RF Regressor)."
 )
 
 
@@ -171,11 +165,11 @@ def root():
 
 @app.get("/health")
 def health():
-    """Returns model metadata and the salary tier dollar thresholds."""
+    """Returns model metadata and output format."""
     return {
         "status": "ok",
-        "model": "DecisionTree",
-        "tiers": thresholds
+        "model": "RandomForestRegressor",
+        "output": "salary_low / salary_avg / salary_high (USD)"
     }
 
 
@@ -206,10 +200,9 @@ def predict(input: PredictionInput):
       1. Fuzzy-match the job title to the closest known title.
       2. Encode all categorical inputs using the saved LabelEncoders.
       3. Build the feature array in the same column order used during training.
-      4. Run model.predict() for the tier and model.predict_proba() for confidence.
-      5. Build the tier-specific salary range from the global thresholds.
-      6. Look up the benchmark stats for this experience level.
-      7. Return the full response.
+      4. Extract p25/p50/p75 salary estimates from individual RF tree predictions.
+      5. Look up the benchmark stats for this experience level.
+      6. Return the full response.
     """
 
     # -----------------------------------------------------------------------
@@ -255,77 +248,35 @@ def predict(input: PredictionInput):
     # -----------------------------------------------------------------------
     # Step 3: Build feature DataFrame
     # Column order MUST match model.feature_names_in_ (what the model was trained on):
-    #   Unnamed: 0, experience_level, employment_type, job_title,
+    #   experience_level, employment_type, job_title,
     #   employee_residence, remote_ratio, company_location, company_size
     #
     # We use a DataFrame (not a bare numpy array) so sklearn does not warn
     # about missing feature names — the column names must match exactly.
-    #
-    # NOTE: "Unnamed: 0" is the CSV row-index column that was accidentally
-    # included during training (train.py did not drop it before fitting).
-    # It has ~19% feature importance, meaning the model partially learned
-    # spurious patterns from it.  We pass 0 here as a neutral placeholder.
-    # This is a known training artifact; re-training without that column
-    # would fix the underlying issue (tracked as a future improvement).
     # -----------------------------------------------------------------------
     features = pd.DataFrame([{
-        "Unnamed: 0":        0,          # CSV row index — leaked into training, neutral default
-        "experience_level":  enc_experience,
-        "employment_type":   enc_employment,
-        "job_title":         enc_job_title,
+        "experience_level":   enc_experience,
+        "employment_type":    enc_employment,
+        "job_title":          enc_job_title,
         "employee_residence": enc_residence,
-        "remote_ratio":      input.remote_ratio,  # numeric — no encoding needed
-        "company_location":  enc_location,
-        "company_size":      enc_size,
+        "remote_ratio":       input.remote_ratio,  # numeric — no encoding needed
+        "company_location":   enc_location,
+        "company_size":       enc_size,
     }])
 
     # -----------------------------------------------------------------------
-    # Step 4: Run the model
-    # predict()       -> array of encoded tier integers (e.g. [1])
-    #                    because salary_tier was LabelEncoded during training:
-    #                    LabelEncoder sorts alphabetically: High=0, Low=1, Mid=2
-    # predict_proba() -> array of class probabilities, e.g. [[0.1, 0.7, 0.2]]
+    # Step 4: Get salary range from individual tree predictions
+    # Each decision tree in the RandomForestRegressor produces its own salary
+    # estimate. Taking percentiles across all 100 trees gives us a natural
+    # confidence interval: p25=low, p50=median, p75=high.
     # -----------------------------------------------------------------------
-    encoded_tier_array = model.predict(features)
-    encoded_tier = encoded_tier_array[0]  # integer: 0=High, 1=Low, 2=Mid
-
-    # Decode the integer back to the human-readable tier string
-    tier = encoders["salary_tier"].inverse_transform([encoded_tier])[0]  # "High", "Low", or "Mid"
-
-    proba_array = model.predict_proba(features)[0]  # e.g. [0.1, 0.7, 0.2]
-
-    # model.classes_ gives the encoded integer for each probability column.
-    # We match on the encoded integer to find the right probability.
-    tier_index = list(model.classes_).index(encoded_tier)
-    confidence = proba_array[tier_index]  # float between 0.0 and 1.0
+    tree_preds = np.array([tree.predict(features)[0] for tree in model.estimators_])
+    salary_low  = int(np.percentile(tree_preds, 25))
+    salary_avg  = int(np.percentile(tree_preds, 50))
+    salary_high = int(np.percentile(tree_preds, 75))
 
     # -----------------------------------------------------------------------
-    # Step 5: Build tier-specific salary range
-    # thresholds["low_max"]  = the dollar ceiling for "Low" tier
-    # thresholds["high_min"] = the dollar floor for "High" tier
-    # "Mid" tier sits between those two numbers.
-    # -----------------------------------------------------------------------
-    if tier == "Low":
-        salary_range = {
-            "min": 0,
-            "max": thresholds["low_max"],
-            "currency": thresholds["currency"]
-        }
-    elif tier == "Mid":
-        salary_range = {
-            "min": thresholds["low_max"],
-            "max": thresholds["high_min"],
-            "currency": thresholds["currency"]
-        }
-    else:  # "High"
-        salary_range = {
-            "min": thresholds["high_min"],
-            "max": None,  # No upper bound for the High tier
-            "currency": thresholds["currency"]
-        }
-
-    # -----------------------------------------------------------------------
-    # Step 6: Look up benchmark for this experience level
+    # Step 5: Look up benchmark for this experience level
     # benchmarks["by_experience"] is a DataFrame indexed on raw experience
     # strings (EN, MI, SE, EX) — NOT the encoded integer.
     # We use input.experience_level (the original string) as the index key.
@@ -333,14 +284,14 @@ def predict(input: PredictionInput):
     bench_row = benchmarks["by_experience"].loc[input.experience_level]
 
     # -----------------------------------------------------------------------
-    # Step 7: Return the full response
+    # Step 6: Return the full response
     # -----------------------------------------------------------------------
     return {
-        "prediction":      tier,
-        "confidence_pct":  round(float(confidence) * 100, 1),
-        "salary_range":    salary_range,
+        "salary_low":        salary_low,
+        "salary_avg":        salary_avg,
+        "salary_high":       salary_high,
         "matched_job_title": matched_title,
-        "match_score":     round(match_score, 2),
+        "match_score":       round(match_score, 2),
         "benchmark": {
             "median":     int(bench_row["median"]),
             "p25":        int(bench_row["p25"]),
