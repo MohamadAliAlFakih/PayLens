@@ -17,6 +17,7 @@ sys.path.append(ROOT_DIR)
 
 import config
 from pipeline.visualize import generate_overview_chart, generate_peer_chart, upload_chart
+from pipeline.narrative import generate_narrative
 
 # Load benchmarks once at module level (same pkl used for chart generation).
 # Loading at import time avoids repeated disk I/O on every prediction call.
@@ -94,17 +95,25 @@ def run_prediction(job_input: dict) -> dict:
         peer_url = upload_chart(peer_bytes, "peer")
 
     # ------------------------------------------------------------------
+    # Step 4.5 — Generate LLM narrative via Ollama/Mistral
+    # generate_narrative always returns a string (fallback if Ollama is down)
+    # so 'narrative' is always present in the result dict.
+    # ------------------------------------------------------------------
+    narrative = generate_narrative(api_result)
+
+    # ------------------------------------------------------------------
     # Step 5 — Build and return the full result dict
     # ------------------------------------------------------------------
     result = {
         # Fields from API response
-        "prediction":        api_result["prediction"],
-        "confidence_pct":    api_result["confidence_pct"],
-        "salary_range":      api_result["salary_range"],
-        "matched_job_title": api_result["matched_job_title"],
-        "match_score":       api_result["match_score"],
-        "benchmark":         api_result["benchmark"],
-        "inputs_received":   api_result["inputs_received"],
+        "prediction":         api_result["prediction"],
+        "confidence_pct":     api_result["confidence_pct"],
+        "salary_range":       api_result["salary_range"],
+        "matched_job_title":  api_result["matched_job_title"],
+        "match_score":        api_result["match_score"],
+        "benchmark":          api_result["benchmark"],
+        "inputs_received":    api_result["inputs_received"],
+        "narrative":          narrative,           # LLM text or fallback string
         # Chart URLs from Supabase Storage (None if upload failed or bucket not yet created)
         "chart_overview_url": overview_url,
         "chart_peer_url":     peer_url,
@@ -131,5 +140,6 @@ if __name__ == "__main__":
     if result:
         print("Prediction:", result["prediction"])
         print("Confidence:", result["confidence_pct"], "%")
+        print("Narrative:\n", result["narrative"])
         print("Overview chart URL:", result["chart_overview_url"])
         print("Peer chart URL:", result["chart_peer_url"])
