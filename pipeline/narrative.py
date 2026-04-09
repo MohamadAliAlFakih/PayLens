@@ -25,17 +25,12 @@ def generate_narrative(api_result: dict) -> str:
     Always returns a string — never raises an exception.
     """
     # --- Extract values ---
-    tier        = api_result.get("prediction", "Unknown")
-    confidence  = api_result.get("confidence_pct", 0)
+    salary_low  = api_result.get("salary_low", 0)
+    salary_avg  = api_result.get("salary_avg", 0)
+    salary_high = api_result.get("salary_high", 0)
     job_title   = api_result.get("matched_job_title", "this role")
     exp_code    = api_result.get("inputs_received", {}).get("experience_level", "SE")
-    exp_labels  = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}
-    exp_label   = exp_labels.get(exp_code, exp_code)
-
-    salary_range = api_result.get("salary_range", {})
-    salary_min   = salary_range.get("min", 0)
-    raw_max      = salary_range.get("max")
-    salary_max   = "above" if raw_max is None else raw_max
+    exp_label   = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}.get(exp_code, exp_code)
 
     benchmark   = api_result.get("benchmark", {})
     median      = benchmark.get("median", 0)
@@ -45,21 +40,20 @@ def generate_narrative(api_result: dict) -> str:
 
     # --- Fallback string (used if both LLM paths fail) ---
     fallback = (
-        f"Predicted salary tier: {tier} ({confidence}% confidence). "
-        f"Peer median for {exp_label} {job_title} roles: ${median:,}. "
-        f"Salary range for this tier: ${salary_min:,}–{salary_max if salary_max == 'above' else f'${salary_max:,}'}."
+        f"For a {exp_label} {job_title}, predicted salary range is "
+        f"${salary_low:,}–${salary_high:,} with an average of ${salary_avg:,}. "
+        f"Peer median ({peer_count} peers): ${median:,}."
     )
 
     # --- Build prompt ---
-    sal_max_str = "above" if salary_max == "above" else f"${salary_max:,}"
-    prompt = f"""You are a compensation analyst. Write a 3-sentence salary insight for this professional.
+    prompt = f"""You are a compensation analyst. Write a 3-sentence salary insight.
 
 Profile: {exp_label} {job_title}
-Predicted tier: {tier} ({confidence}% confidence)
-Salary range: ${salary_min:,} – {sal_max_str}
+Predicted salary range: ${salary_low:,} (low) – ${salary_avg:,} (avg) – ${salary_high:,} (high)
 Peer benchmark ({peer_count} peers): median ${median:,}, 25th %ile ${p25:,}, 75th %ile ${p75:,}
 
-Be specific with the dollar amounts above. Focus on: (1) what this tier means for their career stage, (2) how they compare to peers, (3) one actionable tip. No generic advice."""
+Be specific with the dollar amounts. Focus on: (1) what this range means for their profile,
+(2) how the predicted average compares to peer median, (3) one actionable tip. No generic advice."""
 
     # --- OpenAI path (cloud) ---
     if config.OPENAI_API_KEY:
@@ -92,10 +86,10 @@ Be specific with the dollar amounts above. Focus on: (1) what this tier means fo
 # fallback cleanly if Ollama is not running.
 if __name__ == "__main__":
     mock_result = {
-        "prediction":        "High",
-        "confidence_pct":    72.3,
+        "salary_low":        95000,
+        "salary_avg":        130000,
+        "salary_high":       170000,
         "matched_job_title": "Data Scientist",
-        "salary_range":      {"min": 120000, "max": None, "currency": "USD"},
         "benchmark":         {"median": 135000, "p25": 105000, "p75": 160000, "peer_count": 87},
         "inputs_received":   {"experience_level": "SE"}
     }

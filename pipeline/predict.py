@@ -69,7 +69,7 @@ def run_prediction(job_input: dict) -> dict:
     # ------------------------------------------------------------------
     # Step 2 — Extract values needed for chart generation
     # ------------------------------------------------------------------
-    predicted_tier = api_result["prediction"]       # "Low", "Mid", or "High"
+    salary_avg = api_result["salary_avg"]            # predicted average salary
     experience_level = job_input["experience_level"]  # "EN", "MI", "SE", or "EX"
 
     # ------------------------------------------------------------------
@@ -79,7 +79,7 @@ def run_prediction(job_input: dict) -> dict:
     # ------------------------------------------------------------------
     try:
         overview_bytes = generate_overview_chart(benchmarks)
-        peer_bytes = generate_peer_chart(benchmarks, experience_level, predicted_tier)
+        peer_bytes = generate_peer_chart(benchmarks, experience_level, salary_avg)
     except Exception as e:
         print("Warning: chart generation failed:", e)
         overview_bytes = None
@@ -110,10 +110,10 @@ def run_prediction(job_input: dict) -> dict:
     # Step 5 — Build and return the full result dict
     # ------------------------------------------------------------------
     result = {
-        # Fields from API response
-        "prediction":         api_result["prediction"],
-        "confidence_pct":     api_result["confidence_pct"],
-        "salary_range":       api_result["salary_range"],
+        # Dollar range output (replaces old tier/confidence/salary_range)
+        "salary_low":         api_result["salary_low"],
+        "salary_avg":         api_result["salary_avg"],
+        "salary_high":        api_result["salary_high"],
         "matched_job_title":  api_result["matched_job_title"],
         "match_score":        api_result["match_score"],
         "benchmark":          api_result["benchmark"],
@@ -149,10 +149,10 @@ def save_prediction(result: dict) -> bool:
         "remote_ratio":        result["inputs_received"]["remote_ratio"],
         "company_location":    result["inputs_received"]["company_location"],
         "company_size":        result["inputs_received"]["company_size"],
-        "predicted_tier":      result["prediction"],
-        "confidence_pct":      result["confidence_pct"],
-        "salary_min":          result["salary_range"]["min"],
-        "salary_max":          result["salary_range"].get("max"),   # None for High tier
+        # NEW dollar range output (replaces predicted_tier/confidence/salary_min/max)
+        "salary_low":          result["salary_low"],
+        "salary_avg":          result["salary_avg"],
+        "salary_high":         result["salary_high"],
         "benchmark_median":    result["benchmark"]["median"],
         "benchmark_p25":       result["benchmark"]["p25"],
         "benchmark_p75":       result["benchmark"]["p75"],
@@ -186,8 +186,9 @@ if __name__ == "__main__":
     }
     result = run_prediction(sample)
     if result:
-        print("Prediction:", result["prediction"])
-        print("Confidence:", result["confidence_pct"], "%")
+        print("Salary Low:   $", result["salary_low"])
+        print("Salary Avg:   $", result["salary_avg"])
+        print("Salary High:  $", result["salary_high"])
         print("Narrative:\n", result["narrative"])
         print("Overview chart URL:", result["chart_overview_url"])
         print("Peer chart URL:", result["chart_peer_url"])

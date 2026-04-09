@@ -21,8 +21,16 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ROOT_DIR)
 import config
 
-# Supabase client — initialized once at module level so every call reuses it
-supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
+# Supabase client — initialized once at module level so every call reuses it.
+# Guard against placeholder / missing credentials (e.g. during local testing
+# before a real Supabase project is set up) — a bad URL would raise at import
+# time and prevent predict.py from running at all.
+try:
+    supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
+except Exception as _supabase_init_err:
+    print(f"Warning: Supabase client could not be initialised ({_supabase_init_err}). "
+          "Chart uploads will be skipped.")
+    supabase = None
 
 # The Supabase Storage bucket where all chart PNGs are stored
 CHARTS_BUCKET = "charts"
@@ -129,13 +137,15 @@ def generate_overview_chart(benchmarks: dict) -> bytes:
     return chart_bytes
 
 
-def generate_peer_chart(benchmarks: dict, experience_level: str, predicted_tier: str) -> bytes:
+def generate_peer_chart(benchmarks: dict, experience_level: str, salary_avg: int) -> bytes:
     """
     Generate a bar chart showing all experience levels with the
-    specified experience_level highlighted in the color of the predicted tier.
+    specified experience_level highlighted in accent blue, plus a
+    dashed red line at the predicted salary average.
 
     The highlighted bar draws attention to where the user sits relative
-    to the full salary landscape.
+    to the full salary landscape; the dashed line shows their predicted
+    salary against peer medians.
 
     Parameters
     ----------
@@ -145,9 +155,9 @@ def generate_peer_chart(benchmarks: dict, experience_level: str, predicted_tier:
         by experience_level with a 'median' column.
     experience_level : str
         The user's experience level code: 'EN', 'MI', 'SE', or 'EX'.
-    predicted_tier : str
-        The predicted salary tier: 'Low', 'Mid', or 'High'.
-        Determines the highlight color of the user's bar.
+    salary_avg : int
+        The predicted average salary. Used to draw a dashed reference
+        line and in the chart title.
 
     Returns
     -------
@@ -168,10 +178,10 @@ def generate_peer_chart(benchmarks: dict, experience_level: str, predicted_tier:
     df = df.sort_values("experience_level")
 
     # Step 3: Assign per-bar colors.
-    # The user's bar gets the tier color; all others are neutral grey.
-    # TIER_COLORS.get() falls back to a safe blue if predicted_tier is unexpected.
+    # The user's bar is highlighted in accent blue (#3498db);
+    # all other bars are neutral grey (#bdc3c7).
     colors = [
-        TIER_COLORS.get(predicted_tier, "#3498db") if exp == experience_level else "#bdc3c7"
+        "#3498db" if exp == experience_level else "#bdc3c7"
         for exp in EXP_ORDER
     ]
 
@@ -187,9 +197,9 @@ def generate_peer_chart(benchmarks: dict, experience_level: str, predicted_tier:
     ax.set_xticks(list(x_positions))
     ax.set_xticklabels(EXP_ORDER)
 
-    # Step 7: Title names the user's level and tier so the chart is self-explanatory
+    # Step 7: Title names the user's level and predicted salary
     ax.set_title(
-        f"Your Position: {experience_level} — {predicted_tier} Tier",
+        f"Your Level: {experience_level} — Predicted ${salary_avg:,}",
         fontsize=13,
         fontweight="bold"
     )
@@ -211,12 +221,18 @@ def generate_peer_chart(benchmarks: dict, experience_level: str, predicted_tier:
             fontweight="bold"
         )
 
-    # Step 10: Add a legend note explaining what the highlight means
-    highlight_color = TIER_COLORS.get(predicted_tier, "#3498db")
+    # Step 10: Add a horizontal dashed line at salary_avg to show the predicted salary
+    ax.axhline(y=salary_avg, color="#e74c3c", linestyle="--", linewidth=1.5,
+               label=f"Your prediction: ${salary_avg:,}")
+
+    # Step 11: Add a legend showing the highlighted bar and the predicted salary line
     from matplotlib.patches import Patch
+    from matplotlib.lines import Line2D
     legend_elements = [
-        Patch(facecolor=highlight_color, label=f"Your level ({experience_level}) — {predicted_tier} Tier"),
-        Patch(facecolor="#bdc3c7", label="Other levels")
+        Patch(facecolor="#3498db", label=f"Your level ({experience_level})"),
+        Patch(facecolor="#bdc3c7", label="Other levels"),
+        Line2D([0], [0], color="#e74c3c", linestyle="--", linewidth=1.5,
+               label=f"Your prediction: ${salary_avg:,}"),
     ]
     ax.legend(handles=legend_elements, loc="upper left", fontsize=9)
 
@@ -258,6 +274,11 @@ def upload_chart(chart_bytes: bytes, chart_type: str) -> str:
         Failure is logged but does not raise an exception — the pipeline
         continues even if chart upload is unavailable.
     """
+    # If Supabase client was not initialised (placeholder credentials), skip silently.
+    if supabase is None:
+        print(f"Warning: Supabase unavailable — skipping upload for '{chart_type}' chart.")
+        return None
+
     # Generate a unique filename so repeated uploads never overwrite each other.
     # Format: {uuid4}_{chart_type}.png  e.g. "550e8400-..._overview.png"
     filename = f"{uuid.uuid4()}_{chart_type}.png"
