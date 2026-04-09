@@ -1,0 +1,20 @@
+# Virtual environment
+.venv/
+
+# Secrets
+.env
+
+# Python cache files - auto-generated
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+logs/
+
+# VS Code settings
+.vscode/
+
+# Windows junk files
+Thumbs.db
+desktop.ini
