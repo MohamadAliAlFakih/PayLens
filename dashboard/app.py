@@ -2,10 +2,13 @@
 # PayLens Streamlit dashboard.
 # Input form → prediction → history. Reads all data from Supabase.
 
+import io
 import os
 import sys
 import joblib
 import requests
+import pandas as pd
+import matplotlib.pyplot as plt
 import streamlit as st
 from supabase import create_client
 
@@ -34,6 +37,20 @@ def load_artifacts():
     return encoders, thresholds, benchmarks, model
 
 encoders, thresholds, benchmarks, model = load_artifacts()
+
+
+@st.cache_data(ttl=30)  # refresh every 30 seconds so new predictions appear
+def load_history():
+    """Fetch all prediction rows from Supabase, newest first."""
+    try:
+        resp = supabase.table("predictions").select("*").order("created_at", desc=True).execute()
+        if resp.data:
+            return pd.DataFrame(resp.data)
+        return pd.DataFrame()
+    except Exception as e:
+        st.warning(f"Could not load history: {e}")
+        return pd.DataFrame()
+
 
 # Derive dropdown options from encoders (same values as training)
 EXP_OPTIONS  = list(encoders["experience_level"].classes_)
@@ -195,3 +212,152 @@ with tab_predict:
         if "last_result" in st.session_state:
             result = st.session_state["last_result"]
             _show_prediction_result(result)
+
+with tab_history:
+    st.subheader("📋 Prediction History")
+
+    if st.button("🔄 Refresh", key="refresh_history"):
+        st.cache_data.clear()
+
+    df = load_history()
+
+    if df.empty:
+        st.info("No predictions yet. Run a prediction in the Predict tab first!")
+    else:
+        # Summary metrics at the top
+        h1, h2, h3 = st.columns(3)
+        h1.metric("Total Predictions", len(df))
+        h2.metric("Most Common Tier", df["predicted_tier"].mode()[0] if not df.empty else "—")
+        h3.metric("Avg Confidence", f"{df['confidence_pct'].mean():.1f}%" if not df.empty else "—")
+
+        # Display table with selected columns only
+        display_cols = ["created_at", "matched_job_title", "experience_level",
+                        "predicted_tier", "confidence_pct", "salary_min", "salary_max",
+                        "benchmark_median"]
+
+        # Rename for readability
+        col_labels = {
+            "created_at": "Date",
+            "matched_job_title": "Job Title",
+            "experience_level": "Experience",
+            "predicted_tier": "Tier",
+            "confidence_pct": "Confidence %",
+            "salary_min": "Salary Min",
+            "salary_max": "Salary Max",
+            "benchmark_median": "Peer Median"
+        }
+
+        # Format the date to be shorter
+        df_display = df[display_cols].copy()
+        df_display["created_at"] = pd.to_datetime(df_display["created_at"]).dt.strftime("%Y-%m-%d %H:%M")
+        df_display = df_display.rename(columns=col_labels)
+
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+        # Expandable detail view for each row
+        st.subheader("🔍 Row Detail")
+        selected_idx = st.number_input(
+            "Enter row number to expand (0 = newest):",
+            min_value=0, max_value=max(0, len(df)-1), value=0, step=1
+        )
+
+        if st.button("📂 Expand Row", key="expand_row"):
+            row = df.iloc[int(selected_idx)]
+
+            tier_colors = {"Low": "🟢", "Mid": "🟡", "High": "🔴"}
+            icon = tier_colors.get(row.get("predicted_tier", ""), "⚪")
+
+            st.markdown(f"### {icon} {row.get('predicted_tier', 'Unknown')} Tier — {row.get('matched_job_title', '')}")
+
+            d1, d2, d3 = st.columns(3)
+            d1.metric("Confidence", f"{row.get('confidence_pct', 0)}%")
+            d2.metric("Experience", row.get("experience_level", "—"))
+            d3.metric("Remote", f"{row.get('remote_ratio', '—')}%")
+
+            sal_min = row.get("salary_min", 0)
+            sal_max = row.get("salary_max")
+            range_str = f"${int(sal_min):,} – ${int(sal_max):,}" if sal_max else f"Above ${int(sal_min):,}"
+            st.info(f"**Salary Range:** {range_str}")
+
+            b1, b2, b3, b4 = st.columns(4)
+            b1.metric("Peer Median", f"${int(row.get('benchmark_median', 0)):,}")
+            b2.metric("25th %ile", f"${int(row.get('benchmark_p25', 0)):,}")
+            b3.metric("75th %ile", f"${int(row.get('benchmark_p75', 0)):,}")
+            b4.metric("Peer Count", int(row.get("benchmark_peers", 0)))
+
+            st.subheader("📝 Analyst Report")
+            st.write(row.get("narrative", "No narrative available."))
+
+            # Charts from stored URLs
+            chart_overview = row.get("chart_overview_url")
+            chart_peer = row.get("chart_peer_url")
+            if chart_overview or chart_peer:
+                c1, c2 = st.columns(2)
+                if chart_overview:
+                    c1.image(chart_overview, caption="Salary by Experience Level", use_container_width=True)
+                if chart_peer:
+                    c2.image(chart_peer, caption="Your Position vs Peers", use_container_width=True)
+
+with tab_market:
+    st.subheader("📊 Market Insights")
+    st.caption("Aggregated from all predictions in the database")
+
+    df_market = load_history()
+
+    if df_market.empty:
+        st.info("No data yet. Run some predictions first to see market insights!")
+    else:
+        mi1, mi2 = st.columns(2)
+
+        with mi1:
+            st.markdown("**Tier Distribution**")
+            tier_counts = df_market["predicted_tier"].value_counts()
+            fig1, ax1 = plt.subplots(figsize=(5, 3))
+            colors = {"Low": "#2ecc71", "Mid": "#f39c12", "High": "#e74c3c"}
+            bar_colors = [colors.get(t, "#999") for t in tier_counts.index]
+            ax1.bar(tier_counts.index, tier_counts.values, color=bar_colors)
+            ax1.set_ylabel("Count")
+            ax1.set_title("Salary Tier Distribution")
+            ax1.spines[["top", "right"]].set_visible(False)
+            st.pyplot(fig1)
+            plt.close(fig1)
+
+        with mi2:
+            st.markdown("**Avg Confidence by Tier**")
+            conf_by_tier = df_market.groupby("predicted_tier")["confidence_pct"].mean().sort_values(ascending=False)
+            fig2, ax2 = plt.subplots(figsize=(5, 3))
+            bar_colors2 = [colors.get(t, "#999") for t in conf_by_tier.index]
+            ax2.bar(conf_by_tier.index, conf_by_tier.values, color=bar_colors2)
+            ax2.set_ylabel("Avg Confidence %")
+            ax2.set_title("Confidence by Tier")
+            ax2.spines[["top", "right"]].set_visible(False)
+            st.pyplot(fig2)
+            plt.close(fig2)
+
+        mi3, mi4 = st.columns(2)
+
+        with mi3:
+            st.markdown("**Predictions by Experience Level**")
+            exp_counts = df_market["experience_level"].value_counts()
+            exp_labels = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}
+            exp_counts.index = [exp_labels.get(x, x) for x in exp_counts.index]
+            fig3, ax3 = plt.subplots(figsize=(5, 3))
+            ax3.barh(exp_counts.index, exp_counts.values, color="#3498db")
+            ax3.set_xlabel("Count")
+            ax3.set_title("Predictions by Experience")
+            ax3.spines[["top", "right"]].set_visible(False)
+            st.pyplot(fig3)
+            plt.close(fig3)
+
+        with mi4:
+            st.markdown("**Remote Work Distribution**")
+            remote_counts = df_market["remote_ratio"].value_counts().sort_index()
+            remote_labels = {0: "On-site", 50: "Hybrid", 100: "Full Remote"}
+            remote_counts.index = [remote_labels.get(x, str(x)) for x in remote_counts.index]
+            fig4, ax4 = plt.subplots(figsize=(5, 3))
+            ax4.pie(remote_counts.values, labels=remote_counts.index,
+                    autopct="%1.0f%%", colors=["#e74c3c", "#f39c12", "#2ecc71"],
+                    startangle=90)
+            ax4.set_title("Remote Work Split")
+            st.pyplot(fig4)
+            plt.close(fig4)
