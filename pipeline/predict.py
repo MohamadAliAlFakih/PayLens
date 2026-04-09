@@ -7,6 +7,7 @@ import os
 import sys
 import joblib
 import requests
+from supabase import create_client
 
 # Add the project root (paylens/) to Python's path so config.py can be imported.
 # __file__ is pipeline/predict.py
@@ -23,6 +24,10 @@ from pipeline.narrative import generate_narrative
 # Loading at import time avoids repeated disk I/O on every prediction call.
 BENCHMARKS_PATH = os.path.join(ROOT_DIR, "model", "benchmarks.pkl")
 benchmarks = joblib.load(BENCHMARKS_PATH)
+
+# Supabase client — initialized once at module level
+# Used by save_prediction() to persist results to the cloud database
+supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
 
 
 def run_prediction(job_input: dict) -> dict:
@@ -118,7 +123,50 @@ def run_prediction(job_input: dict) -> dict:
         "chart_overview_url": overview_url,
         "chart_peer_url":     peer_url,
     }
+
+    # Save result to Supabase (failure is non-fatal — dashboard still works from prior rows)
+    save_prediction(result)
+
     return result
+
+
+def save_prediction(result: dict) -> bool:
+    """
+    Inserts a prediction result into the Supabase predictions table.
+
+    Maps the result dict keys to the table column names.
+    Returns True if the insert succeeded, False if it failed.
+    Never raises an exception — a save failure should not crash the pipeline.
+    """
+    # Flatten the nested dicts into individual column values
+    row = {
+        "experience_level":    result["inputs_received"]["experience_level"],
+        "employment_type":     result["inputs_received"]["employment_type"],
+        "job_title":           result["inputs_received"]["job_title"],
+        "matched_job_title":   result["matched_job_title"],
+        "match_score":         result["match_score"],
+        "employee_residence":  result["inputs_received"]["employee_residence"],
+        "remote_ratio":        result["inputs_received"]["remote_ratio"],
+        "company_location":    result["inputs_received"]["company_location"],
+        "company_size":        result["inputs_received"]["company_size"],
+        "predicted_tier":      result["prediction"],
+        "confidence_pct":      result["confidence_pct"],
+        "salary_min":          result["salary_range"]["min"],
+        "salary_max":          result["salary_range"].get("max"),   # None for High tier
+        "benchmark_median":    result["benchmark"]["median"],
+        "benchmark_p25":       result["benchmark"]["p25"],
+        "benchmark_p75":       result["benchmark"]["p75"],
+        "benchmark_peers":     result["benchmark"]["peer_count"],
+        "narrative":           result["narrative"],
+        "chart_overview_url":  result.get("chart_overview_url"),
+        "chart_peer_url":      result.get("chart_peer_url"),
+    }
+    try:
+        supabase.table("predictions").insert(row).execute()
+        return True
+    except Exception as e:
+        print("Warning: failed to save prediction to Supabase:", e)
+        return False
 
 
 # if __name__ == "__main__" means this block only runs when you call the file
