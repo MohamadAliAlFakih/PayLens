@@ -172,15 +172,15 @@ def _show_feature_importance(model):
         else:
             display_names.append(n.replace("_", " ").title())
 
-    fig, ax = plt.subplots(figsize=(5, 2.8))
+    fig, ax = plt.subplots(figsize=(5, 2.5))
     bars = ax.barh(display_names, values, color="#3498db")
-    ax.set_xlabel("Importance")
-    ax.set_title("What Drives Your Salary Prediction")
+    ax.set_xlabel("Importance", fontsize=8)
+    ax.set_title("What Drives Your Salary Prediction", fontsize=9)
+    ax.tick_params(axis="both", labelsize=7)
     ax.spines[["top", "right"]].set_visible(False)
-    # Add value labels on bars
     for bar, val in zip(bars, values):
         ax.text(bar.get_width() + 0.002, bar.get_y() + bar.get_height()/2,
-                f"{val:.1%}", va="center", fontsize=8)
+                f"{val:.1%}", va="center", fontsize=7)
     plt.tight_layout()
     st.pyplot(fig)
     plt.close(fig)
@@ -189,30 +189,31 @@ def _show_feature_importance(model):
 
 def _draw_range_scale(salary_low, salary_avg, salary_high, offer=None, offer_label="Your Offer", offers_list=None, title=None):
     """Horizontal matplotlib salary range scale with avg marker, low/high anchors, optional offer marker."""
-    fig, ax = plt.subplots(figsize=(3.2, 1))
+    fig, ax = plt.subplots(figsize=(5, 2.5))
     ax.barh([""], [salary_high - salary_low], left=salary_low, color="#3498db", alpha=0.25, height=0.4)
-    ax.plot(salary_avg, 0, marker="v", color="#2980b9", markersize=12, zorder=5)
-    ax.text(salary_avg, 0.28, f"Avg\n${salary_avg:,}", ha="center", va="bottom", fontsize=4, color="#2980b9", fontweight="bold")
+    ax.plot(salary_avg, 0, marker="v", color="#2980b9", markersize=8, zorder=5)
+    ax.text(salary_avg, 0.28, f"Avg\n${salary_avg:,}", ha="center", va="bottom", fontsize=7, color="#2980b9", fontweight="bold")
     ax.axvline(salary_low,  color="#e67e22", linewidth=1.5, linestyle=":")
-    ax.text(salary_low,  0.28, f"${salary_low:,}",  ha="center", va="bottom", fontsize=3, color="#e67e22", fontweight="bold")
+    ax.text(salary_low,  0.28, f"${salary_low:,}",  ha="center", va="bottom", fontsize=7, color="#e67e22", fontweight="bold")
     ax.axvline(salary_high, color="#27ae60", linewidth=1.5, linestyle=":")
-    ax.text(salary_high, 0.28, f"${salary_high:,}", ha="center", va="bottom", fontsize=3, color="#27ae60", fontweight="bold")
+    ax.text(salary_high, 0.28, f"${salary_high:,}", ha="center", va="bottom", fontsize=7, color="#27ae60", fontweight="bold")
     if offers_list:
         for i, (lbl, amt) in enumerate(offers_list):
             color = "#27ae60" if amt >= salary_avg else "#e67e22"
-            ax.plot(amt, 0, marker="o", color=color, markersize=11, zorder=6+i)
+            ax.plot(amt, 0, marker="o", color=color, markersize=7, zorder=6+i)
             ax.text(amt, 0.56 + i*0.18, f"{lbl}\n${amt:,}", ha="center", va="bottom",
-                    fontsize=7.5, color=color, fontweight="bold")
+                    fontsize=7, color=color, fontweight="bold")
     elif offer and offer > 0:
         color = "#27ae60" if offer >= salary_avg else "#e67e22"
-        ax.plot(offer, 0, marker="o", color=color, markersize=11, zorder=6)
-        ax.text(offer, 0.56, f"{offer_label}\n${offer:,}", ha="center", va="bottom", fontsize=3, color=color, fontweight="bold")
+        ax.plot(offer, 0, marker="o", color=color, markersize=7, zorder=6)
+        ax.text(offer, 0.56, f"{offer_label}\n${offer:,}", ha="center", va="bottom", fontsize=7, color=color, fontweight="bold")
     ax.set_xlim(salary_low * 0.88, salary_high * 1.12)
-    ax.set_ylim(-0.6, 1.1)  # fixed height — prevents chart resizing when offer label is added
+    ax.set_ylim(-0.6, 1.1)
     ax.set_yticks([])
     ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.tick_params(axis="x", labelsize=7)
     ax.spines[["top", "right", "left"]].set_visible(False)
-    ax.set_xlabel("Annual Salary (USD)", fontsize=7)
+    ax.set_xlabel("Annual Salary (USD)", fontsize=8)
     plt.tight_layout()
     st.pyplot(fig)
     plt.close(fig)
@@ -232,23 +233,17 @@ def _show_benchmark_yourself(result):
 
     fig, ax = plt.subplots(figsize=(5, 2.5))
 
-    # Background band for p25–p75
     ax.barh(["Peer Range"], [p75 - p25], left=p25,
             color="#3498db", alpha=0.3, height=0.4, label="Peer 25–75th %ile")
+    ax.axvline(median, color="#2980b9", linewidth=1.5, linestyle="--", label=f"Peer Median ${median:,}")
+    ax.axvline(your_salary, color="#e74c3c", linewidth=2, label=f"Your Salary Avg ${your_salary:,}")
 
-    # Median line
-    ax.axvline(median, color="#2980b9", linewidth=2, linestyle="--", label=f"Peer Median ${median:,}")
-
-    # Your predicted salary avg
-    ax.axvline(your_salary, color="#e74c3c", linewidth=2.5, label=f"Your Salary Avg ${your_salary:,}")
-
-    ax.set_xlabel("Annual Salary (USD)")
-    ax.set_title("Your Prediction vs. Peer Benchmark")
-    ax.legend(loc="upper left", fontsize=8)
+    ax.set_xlabel("Annual Salary (USD)", fontsize=8)
+    ax.set_title("Your Prediction vs. Peer Benchmark", fontsize=9)
+    ax.legend(loc="upper left", fontsize=7)
+    ax.tick_params(axis="both", labelsize=7)
     ax.spines[["top", "right", "left"]].set_visible(False)
     ax.set_yticks([])
-
-    # Format x-axis with commas
     ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     plt.tight_layout()
     st.pyplot(fig)
@@ -278,17 +273,36 @@ def _show_prediction_result(result):
     m3.markdown(f'<div style="background:#eafaf1;border:1px solid #27ae60;border-radius:8px;padding:14px 16px;text-align:center;"><div style="font-size:12px;color:#27ae60;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">High</div><div style="font-size:26px;font-weight:700;color:#27ae60;">${salary_high:,}</div></div>', unsafe_allow_html=True)
     st.write("")  # spacing
 
-    # Range scale with offer input — constrained to half page width
-    st.subheader("Salary Range Scale")
-    scale_col, _ = st.columns([1, 1])
-    with scale_col:
+    # 2×2 chart grid — all four charts at equal width and height
+    st.subheader("Charts")
+    ch1, ch2 = st.columns(2)
+    ch3, ch4 = st.columns(2)
+
+    with ch1:
+        st.caption("Salary Range Scale")
         offer_input = st.number_input(
-            "Enter your offer amount (USD) to see where it lands:",
+            "Enter your offer (USD):",
             min_value=0, value=0, step=1000,
             key="offer_input"
         )
         offer_val = int(offer_input) if int(offer_input) > 0 else None
         _draw_range_scale(salary_low, salary_avg, salary_high, offer=offer_val)
+
+    with ch2:
+        st.caption("Peer Benchmark")
+        _show_benchmark_yourself(result)
+
+    with ch3:
+        st.caption("What Drives Your Salary Prediction")
+        _show_feature_importance(model)
+
+    with ch4:
+        chart_peer = result.get("chart_peer_url")
+        st.caption("Salary by Experience Level")
+        if chart_peer:
+            st.image(chart_peer, use_container_width=True)
+        else:
+            st.caption("Chart not available.")
 
     # Offer verdict
     if offer_val and offer_val > 0:
@@ -331,10 +345,6 @@ def _show_prediction_result(result):
             unsafe_allow_html=True
         )
 
-    # Benchmark yourself visual (below peer benchmark card)
-    with st.expander("📊 See how you compare visually", expanded=True):
-        _show_benchmark_yourself(result)
-
     # Analyst Report
     st.subheader("Analyst Report")
     clean_narrative = (narrative or "No narrative available.")
@@ -344,17 +354,6 @@ def _show_prediction_result(result):
         f'border-radius:4px;font-size:15px;line-height:1.7;color:#2c3e50;">{clean_narrative}</div>',
         unsafe_allow_html=True
     )
-
-    # Peer chart below analyst report
-    chart_peer = result.get("chart_peer_url")
-    if chart_peer:
-        st.write("")
-        _, img_col, _ = st.columns([0.5, 3, 0.5])
-        img_col.image(chart_peer, caption="Salary by Experience Level", use_container_width=True)
-
-    # Feature importance
-    with st.expander("🔍 What factors influenced this prediction?", expanded=False):
-        _show_feature_importance(model)
 
     # Download report button
     range_str = f"${salary_low:,} – ${salary_high:,}"
