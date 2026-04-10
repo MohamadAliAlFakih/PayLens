@@ -22,6 +22,23 @@ st.set_page_config(
     layout="wide"
 )
 
+st.markdown("""
+<style>
+    /* Blue primary button */
+    div.stButton > button[kind="primary"] {
+        background-color: #2980b9 !important;
+        border-color: #2980b9 !important;
+        color: white !important;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #2471a3 !important;
+        border-color: #2471a3 !important;
+    }
+    /* Remove default top padding so toolbar sits flush */
+    .block-container { padding-top: 0rem !important; }
+</style>
+""", unsafe_allow_html=True)
+
 # Initialize Supabase client once
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
@@ -342,9 +359,12 @@ Analyst Report:
     )
 
 
-st.title("💰 PayLens")
-st.caption("Intelligent salary prediction for data professionals")
-st.divider()
+st.markdown("""
+<div style="background-color:#2980b9;padding:18px 28px;margin-bottom:24px;">
+    <span style="color:white;font-size:26px;font-weight:700;">💰 PayLens</span>
+    <span style="color:#d6eaf8;font-size:14px;margin-left:16px;">Intelligent salary prediction for data professionals</span>
+</div>
+""", unsafe_allow_html=True)
 
 tab_predict, tab_market, tab_history = st.tabs(["🔮 Predict", "📊 Market Insights", "📋 History"])
 
