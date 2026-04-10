@@ -78,7 +78,7 @@ Rules:
             return response.text.strip()
         except Exception as e:
             print(f"Warning: Gemini unavailable: {e}")
-            return f"[Gemini error: {e}] {fallback}"
+            return fallback
 
     # --- Ollama path (local) ---
     try:
