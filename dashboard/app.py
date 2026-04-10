@@ -24,9 +24,22 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* Hide Streamlit's built-in white header bar */
-    header[data-testid="stHeader"] { display: none !important; }
-
+    /* Style the built-in header bar blue */
+    header[data-testid="stHeader"] {
+        background-color: #2980b9 !important;
+    }
+    /* Inject PayLens title text into the left side of the header */
+    header[data-testid="stHeader"]::before {
+        content: "💰 PayLens  —  Intelligent salary prediction for data professionals";
+        color: white;
+        font-size: 16px;
+        font-weight: 700;
+        position: absolute;
+        left: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        white-space: nowrap;
+    }
     /* Blue primary button */
     div.stButton > button[kind="primary"] {
         background-color: #2980b9 !important;
@@ -37,8 +50,6 @@ st.markdown("""
         background-color: #2471a3 !important;
         border-color: #2471a3 !important;
     }
-    /* Remove default top padding so our toolbar sits flush at the top */
-    .block-container { padding-top: 0rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -362,12 +373,6 @@ Analyst Report:
     )
 
 
-st.markdown("""
-<div style="background-color:#2980b9;padding:18px 28px;margin-bottom:24px;">
-    <span style="color:white;font-size:26px;font-weight:700;">💰 PayLens</span>
-    <span style="color:#d6eaf8;font-size:14px;margin-left:16px;">Intelligent salary prediction for data professionals</span>
-</div>
-""", unsafe_allow_html=True)
 
 tab_predict, tab_market, tab_history = st.tabs(["🔮 Predict", "📊 Market Insights", "📋 History"])
 
