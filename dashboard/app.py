@@ -24,6 +24,9 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* Hide Streamlit's built-in white header bar */
+    header[data-testid="stHeader"] { display: none !important; }
+
     /* Blue primary button */
     div.stButton > button[kind="primary"] {
         background-color: #2980b9 !important;
@@ -34,7 +37,7 @@ st.markdown("""
         background-color: #2471a3 !important;
         border-color: #2471a3 !important;
     }
-    /* Remove default top padding so toolbar sits flush */
+    /* Remove default top padding so our toolbar sits flush at the top */
     .block-container { padding-top: 0rem !important; }
 </style>
 """, unsafe_allow_html=True)
