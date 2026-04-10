@@ -116,6 +116,8 @@ def run_prediction(job_input: dict) -> dict:
         "salary_high":        api_result["salary_high"],
         "matched_job_title":  api_result["matched_job_title"],
         "match_score":        api_result["match_score"],
+        "title_fallback":     api_result.get("title_fallback", False),
+        "original_job_title": api_result.get("original_job_title"),
         "benchmark":          api_result["benchmark"],
         "inputs_received":    api_result["inputs_received"],
         "narrative":          narrative,           # LLM text or fallback string

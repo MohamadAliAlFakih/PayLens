@@ -218,6 +218,8 @@ def predict(input: PredictionInput):
         cutoff=0.6  # require at least 60% similarity to accept a match
     )
 
+    title_fallback = False  # True when we couldn't find a real match
+
     if matches:
         matched_title = matches[0]
         # Compute how similar the input title is to the matched title (0.0 to 1.0)
@@ -225,11 +227,18 @@ def predict(input: PredictionInput):
             None, input.job_title.lower(), matched_title.lower()
         ).ratio()
     else:
-        # No close match found — fall back to "Other" which was the catch-all
-        # bucket created during training for rare / unknown titles
+        # No match at 60% cutoff — try a relaxed search (any similarity) to find
+        # the closest real title for display purposes.
+        known_titles = [t for t in SUPPORTED_JOB_TITLES if t != "Other"]
+        best = difflib.get_close_matches(input.job_title, known_titles, n=1, cutoff=0.0)
+        display_title = best[0] if best else "Data Professional"
+        match_score = difflib.SequenceMatcher(
+            None, input.job_title.lower(), display_title.lower()
+        ).ratio() if best else 0.0
+
+        # The model still predicts using "Other" — only display changes
         matched_title = "Other"
-        # match_score is 0 when we fall back to "Other" — no real match was found
-        match_score = 0.0
+        title_fallback = True
 
     # -----------------------------------------------------------------------
     # Step 2: Encode categorical inputs
@@ -270,7 +279,7 @@ def predict(input: PredictionInput):
     # estimate. Taking percentiles across all 100 trees gives us a natural
     # confidence interval: p25=low, p50=median, p75=high.
     # -----------------------------------------------------------------------
-    tree_preds = np.array([tree.predict(features)[0] for tree in model.estimators_])
+    tree_preds = np.array([tree.predict(features.values)[0] for tree in model.estimators_])
     salary_low  = int(np.percentile(tree_preds, 25))
     salary_avg  = int(np.percentile(tree_preds, 50))
     salary_high = int(np.percentile(tree_preds, 75))
@@ -290,8 +299,10 @@ def predict(input: PredictionInput):
         "salary_low":        salary_low,
         "salary_avg":        salary_avg,
         "salary_high":       salary_high,
-        "matched_job_title": matched_title,
+        "matched_job_title": display_title if title_fallback else matched_title,
         "match_score":       round(match_score, 2),
+        "title_fallback":    title_fallback,
+        "original_job_title": input.job_title if title_fallback else None,
         "benchmark": {
             "median":     int(bench_row["median"]),
             "p25":        int(bench_row["p25"]),

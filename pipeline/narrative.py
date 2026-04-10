@@ -46,14 +46,18 @@ def generate_narrative(api_result: dict) -> str:
     )
 
     # --- Build prompt ---
-    prompt = f"""You are a compensation analyst. Write a 3-sentence salary insight.
+    prompt = f"""You are a compensation analyst. Write a 3-sentence salary insight in plain prose.
 
 Profile: {exp_label} {job_title}
-Predicted salary range: ${salary_low:,} (low) – ${salary_avg:,} (avg) – ${salary_high:,} (high)
-Peer benchmark ({peer_count} peers): median ${median:,}, 25th %ile ${p25:,}, 75th %ile ${p75:,}
+Predicted salary range: low ${salary_low:,}, average ${salary_avg:,}, high ${salary_high:,}
+Peer benchmark based on {peer_count} peers: median ${median:,}, 25th percentile ${p25:,}, 75th percentile ${p75:,}
 
-Be specific with the dollar amounts. Focus on: (1) what this range means for their profile,
-(2) how the predicted average compares to peer median, (3) one actionable tip. No generic advice."""
+Rules:
+- Do NOT add labels like (low), (high), (avg), (median) after dollar amounts
+- Do NOT use parentheses around salary labels
+- Use plain dollar amounts inline, e.g. "a range of $57,000 to $103,000"
+- Focus on: (1) what this range means for their profile, (2) how their average compares to the peer median, (3) one actionable tip
+- No generic advice. Be specific."""
 
     # --- OpenAI path (cloud) ---
     if config.OPENAI_API_KEY:

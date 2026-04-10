@@ -83,7 +83,7 @@ def generate_overview_chart(benchmarks: dict) -> bytes:
     # Step 3: Create figure and axes explicitly.
     # Using fig, ax = plt.subplots() keeps matplotlib in OO mode
     # and avoids the global state machine (safer for multiple charts).
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(6, 3.5))
 
     # Step 4: Draw the bar chart with experience level on x, median salary on y.
     # hue="experience_level" + legend=False is the seaborn 0.14-compatible way
@@ -186,24 +186,21 @@ def generate_peer_chart(benchmarks: dict, experience_level: str, salary_avg: int
     ]
 
     # Step 4: Create figure and axes
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(6, 3.5))
 
     # Step 5: Use ax.bar() directly — seaborn's barplot does not support
     # per-bar color lists, so we drop down to matplotlib for this chart.
     x_positions = range(len(EXP_ORDER))
-    bars = ax.bar(x_positions, df["median"].values, color=colors)
+    bars = ax.bar(x_positions, df["median"].values, color=colors, width=0.45)
 
-    # Step 6: Set x-axis tick labels to the experience codes
+    # Step 6: Set x-axis tick labels to full words
+    full_labels = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}
     ax.set_xticks(list(x_positions))
-    ax.set_xticklabels(EXP_ORDER)
+    ax.set_xticklabels([full_labels.get(e, e) for e in EXP_ORDER])
 
-    # Step 7: Title names the user's level and predicted salary
-    ax.set_title(
-        f"Your Level: {experience_level} — Predicted ${salary_avg:,}",
-        fontsize=13,
-        fontweight="bold"
-    )
-    ax.set_xlabel("Experience Level  (EN=Entry  MI=Mid  SE=Senior  EX=Exec)")
+    # Step 7: Title
+    ax.set_title("Salary by Experience Level", fontsize=13, fontweight="bold")
+    ax.set_xlabel("")
     ax.set_ylabel("Median Salary (USD)")
 
     # Step 8: Format y-axis as dollar amounts
@@ -228,8 +225,9 @@ def generate_peer_chart(benchmarks: dict, experience_level: str, salary_avg: int
     # Step 11: Add a legend showing the highlighted bar and the predicted salary line
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
+    full_exp_label = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}.get(experience_level, experience_level)
     legend_elements = [
-        Patch(facecolor="#3498db", label=f"Your level ({experience_level})"),
+        Patch(facecolor="#3498db", label=f"Your level ({full_exp_label})"),
         Patch(facecolor="#bdc3c7", label="Other levels"),
         Line2D([0], [0], color="#e74c3c", linestyle="--", linewidth=1.5,
                label=f"Your prediction: ${salary_avg:,}"),
@@ -238,7 +236,7 @@ def generate_peer_chart(benchmarks: dict, experience_level: str, salary_avg: int
 
     plt.tight_layout()
 
-    # Step 11: Render to bytes — no file written to disk
+    # Step 12: Render to bytes — no file written to disk
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", dpi=120)
     buf.seek(0)

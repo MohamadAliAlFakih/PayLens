@@ -1,7 +1,7 @@
-# PayLens 💰
+# PayLens
 
-Intelligent salary tier prediction for data professionals.  
-Enter your job details → get a salary tier (Low / Mid / High), peer benchmark, LLM-generated analyst report, and downloadable summary.
+Intelligent salary prediction for data professionals.  
+Enter your job details → get a salary range (low / avg / high), peer benchmark, LLM-generated analyst report, and downloadable summary.
 
 ## Live Demo
 
@@ -19,7 +19,7 @@ User
  │
  ▼
 Streamlit Dashboard (dashboard/app.py)
- │  ├── calls run_prediction(job_input)  →  FastAPI /predict  →  DecisionTree model
+ │  ├── calls run_prediction(job_input)  →  FastAPI /predict  →  RandomForestRegressor
  │  ├── generates charts (seaborn/matplotlib)  →  uploads to Supabase Storage
  │  ├── generates narrative (OpenAI GPT-3.5 / Ollama Mistral)
  │  └── saves full result to Supabase predictions table
@@ -52,7 +52,7 @@ Create `.env` in the project root:
 ```
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-publishable-key
-OPENAI_API_KEY=sk-...          # optional — leave blank to use Ollama locally
+OPENAI_API_KEY=sk-...        
 ```
 
 Train the model (first time only):
@@ -96,15 +96,17 @@ Open `http://localhost:8501`
 **Response:**
 ```json
 {
-  "prediction":        "Mid",
-  "confidence_pct":    72.3,
-  "salary_range":      {"min": 76833, "max": 130000, "currency": "USD"},
-  "matched_job_title": "Data Scientist",
-  "match_score":       1.0,
+  "salary_low":         160000,
+  "salary_avg":         165000,
+  "salary_high":        172000,
+  "matched_job_title":  "Data Scientist",
+  "match_score":        1.0,
+  "title_fallback":     false,
+  "original_job_title": null,
   "benchmark": {
-    "median": 110000, "p25": 90000, "p75": 130000, "peer_count": 45
+    "median": 135000, "p25": 105000, "p75": 160000, "peer_count": 278
   },
-  "inputs_received": { "..." : "..." }
+  "inputs_received": { "...": "..." }
 }
 ```
 
@@ -156,10 +158,9 @@ paylens/
 │   └── app.py               # Streamlit dashboard (Predict / History / Market Insights)
 ├── model/
 │   ├── train.py             # Model training script
-│   ├── salary_model.pkl     # Trained DecisionTreeClassifier
+│   ├── salary_model.pkl     # Trained RandomForestRegressor
 │   ├── encoders.pkl         # LabelEncoders for categorical fields
-│   ├── benchmarks.pkl       # Peer salary benchmarks by experience level
-│   └── thresholds.pkl       # Tier thresholds (low_max, high_min)
+│   └── benchmarks.pkl       # Peer salary benchmarks by experience level
 ├── data/
 │   └── salaries.csv         # AI/ML jobs salary dataset (~3,000 rows)
 ├── config.py                # Central configuration (reads from .env)
@@ -170,10 +171,10 @@ paylens/
 
 ## Model
 
-- **Algorithm:** Decision Tree Classifier (scikit-learn)
+- **Algorithm:** Random Forest Regressor (100 trees, scikit-learn)
 - **Features:** experience_level, employment_type, job_title, employee_residence, remote_ratio, company_location, company_size
-- **Target:** salary_tier (Low / Mid / High)
-- **Thresholds:** Low < $76,833 ≤ Mid < $130,000 ≤ High
+- **Target:** salary_in_usd (continuous — predicts a dollar amount directly)
+- **Salary range:** p25/p50/p75 across individual tree predictions gives low/avg/high
 - **Job title matching:** fuzzy match via `difflib.get_close_matches` (cutoff 0.6)
 
 ---

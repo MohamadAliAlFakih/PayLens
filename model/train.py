@@ -376,7 +376,7 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, encoders):
     # Each tree independently predicts salary; the spread = confidence range.
     # -------------------------------------------------------------------------
     sample = X_test.iloc[[0]]
-    tree_preds = np.array([tree.predict(sample)[0] for tree in model.estimators_])
+    tree_preds = np.array([tree.predict(sample.values)[0] for tree in model.estimators_])
     p25 = int(np.percentile(tree_preds, 25))
     p50 = int(np.percentile(tree_preds, 50))
     p75 = int(np.percentile(tree_preds, 75))
@@ -427,8 +427,6 @@ def build_benchmark_table():
         mean="mean",
         p25=lambda x: x.quantile(0.25),
         p75=lambda x: x.quantile(0.75),
-        low_max=lambda x: x.quantile(0.33),
-        high_min=lambda x: x.quantile(0.66)
     ).round(0)
     benchmarks["by_experience"] = level1
     log.info("Experience benchmarks:\n" + level1.to_string())
@@ -450,8 +448,6 @@ def build_benchmark_table():
         median="median",
         p25=lambda x: x.quantile(0.25),
         p75=lambda x: x.quantile(0.75),
-        low_max=lambda x: x.quantile(0.33),
-        high_min=lambda x: x.quantile(0.66)
     ).round(0)
     level3 = level3[level3["count"] >= 5]
     benchmarks["by_title"] = level3

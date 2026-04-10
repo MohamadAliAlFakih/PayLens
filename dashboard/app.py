@@ -2,11 +2,10 @@
 # PayLens Streamlit dashboard.
 # Input form → prediction → history. Reads all data from Supabase.
 
-import io
+import re
 import os
 import sys
 import joblib
-import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
@@ -38,6 +37,7 @@ def load_artifacts():
 encoders, benchmarks, model = load_artifacts()
 
 
+
 @st.cache_data(ttl=30)  # refresh every 30 seconds so new predictions appear
 def load_history():
     """Fetch all prediction rows from Supabase, newest first."""
@@ -51,17 +51,60 @@ def load_history():
         return pd.DataFrame()
 
 
-# Derive dropdown options from encoders (same values as training)
-EXP_OPTIONS  = list(encoders["experience_level"].classes_)
-EMP_OPTIONS  = list(encoders["employment_type"].classes_)
-SIZE_OPTIONS = list(encoders["company_size"].classes_)
-COUNTRY_OPTIONS = list(encoders["employee_residence"].classes_)
+# Options in logical order (derived from encoders for valid values, overridden for sort order)
+EXP_OPTIONS     = ["EN", "MI", "SE", "EX"]   # Entry → Mid → Senior → Executive
+EMP_OPTIONS     = ["FT", "PT", "CT", "FL"]   # Full-time first
+SIZE_OPTIONS    = ["S", "M", "L"]            # Small → Medium → Large
+COUNTRY_OPTIONS = sorted(encoders["employee_residence"].classes_)
 TITLE_OPTIONS   = list(encoders["job_title"].classes_)
 
-# Human-readable labels for experience level codes
-EXP_LABELS = {"EN": "EN — Entry-level", "MI": "MI — Mid-level", "SE": "SE — Senior", "EX": "EX — Executive"}
-EMP_LABELS = {"FT": "FT — Full-time", "PT": "PT — Part-time", "CT": "CT — Contract", "FL": "FL — Freelance"}
-SIZE_LABELS = {"S": "S — Small", "M": "M — Medium", "L": "L — Large"}
+# Display labels (no codes shown to end users)
+EXP_LABELS  = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}
+EMP_LABELS  = {"FT": "Full-time",   "PT": "Part-time", "CT": "Contract", "FL": "Freelance"}
+SIZE_LABELS = {"S": "Small",        "M": "Medium",     "L": "Large"}
+
+# Full country names for display (API still receives 2-letter codes)
+COUNTRY_NAMES = {
+    "AE": "United Arab Emirates", "AF": "Afghanistan", "AM": "Armenia",
+    "AR": "Argentina",            "AT": "Austria",     "AU": "Australia",
+    "AZ": "Azerbaijan",           "BA": "Bosnia and Herzegovina", "BD": "Bangladesh",
+    "BE": "Belgium",              "BG": "Bulgaria",    "BH": "Bahrain",
+    "BO": "Bolivia",              "BR": "Brazil",      "BN": "Brunei",
+    "BY": "Belarus",              "CA": "Canada",      "CH": "Switzerland",
+    "CI": "Côte d'Ivoire",        "CL": "Chile",       "CM": "Cameroon",
+    "CN": "China",                "CO": "Colombia",    "CR": "Costa Rica",
+    "CU": "Cuba",                 "CY": "Cyprus",      "CZ": "Czech Republic",
+    "DE": "Germany",              "DK": "Denmark",     "DO": "Dominican Republic",
+    "EC": "Ecuador",              "EE": "Estonia",     "EG": "Egypt",
+    "ES": "Spain",                "FI": "Finland",     "FJ": "Fiji",
+    "FR": "France",               "GB": "United Kingdom", "GE": "Georgia",
+    "GH": "Ghana",                "GR": "Greece",      "GT": "Guatemala",
+    "HK": "Hong Kong",            "HN": "Honduras",    "HR": "Croatia",
+    "HU": "Hungary",              "ID": "Indonesia",   "IE": "Ireland",
+    "IL": "Israel",               "IN": "India",       "IQ": "Iraq",
+    "IR": "Iran",                 "IS": "Iceland",     "IT": "Italy",
+    "JM": "Jamaica",              "JO": "Jordan",      "JP": "Japan",
+    "KE": "Kenya",                "KH": "Cambodia",    "KR": "South Korea",
+    "KW": "Kuwait",               "KZ": "Kazakhstan",  "LA": "Laos",
+    "LB": "Lebanon",              "LI": "Liechtenstein", "LK": "Sri Lanka",
+    "LT": "Lithuania",            "LU": "Luxembourg",  "LV": "Latvia",
+    "MA": "Morocco",              "MD": "Moldova",     "MK": "North Macedonia",
+    "MM": "Myanmar",              "MO": "Macau",       "MT": "Malta",
+    "MX": "Mexico",               "MY": "Malaysia",    "NG": "Nigeria",
+    "NL": "Netherlands",          "NO": "Norway",      "NP": "Nepal",
+    "NZ": "New Zealand",          "OM": "Oman",        "PA": "Panama",
+    "PE": "Peru",                 "PH": "Philippines", "PK": "Pakistan",
+    "PL": "Poland",               "PT": "Portugal",    "PY": "Paraguay",
+    "QA": "Qatar",                "RO": "Romania",     "RS": "Serbia",
+    "RU": "Russia",               "SA": "Saudi Arabia", "SE": "Sweden",
+    "SG": "Singapore",            "SI": "Slovenia",    "SK": "Slovakia",
+    "SO": "Somalia",              "SV": "El Salvador", "SY": "Syria",
+    "TH": "Thailand",             "TN": "Tunisia",     "TR": "Turkey",
+    "TT": "Trinidad and Tobago",  "TW": "Taiwan",      "UA": "Ukraine",
+    "UG": "Uganda",               "US": "United States", "UY": "Uruguay",
+    "UZ": "Uzbekistan",           "VE": "Venezuela",   "VN": "Vietnam",
+    "YE": "Yemen",                "ZA": "South Africa",
+}
 
 
 def _show_feature_importance(model):
@@ -85,7 +128,7 @@ def _show_feature_importance(model):
         else:
             display_names.append(n.replace("_", " ").title())
 
-    fig, ax = plt.subplots(figsize=(6, 3.5))
+    fig, ax = plt.subplots(figsize=(5, 2.8))
     bars = ax.barh(display_names, values, color="#3498db")
     ax.set_xlabel("Importance")
     ax.set_title("What Drives Your Salary Prediction")
@@ -99,25 +142,33 @@ def _show_feature_importance(model):
     plt.close(fig)
 
 
-def _draw_range_scale(salary_low, salary_avg, salary_high, offer=None, offer_label="Your Offer"):
+
+def _draw_range_scale(salary_low, salary_avg, salary_high, offer=None, offer_label="Your Offer", offers_list=None, title=None):
     """Horizontal matplotlib salary range scale with avg marker, low/high anchors, optional offer marker."""
-    fig, ax = plt.subplots(figsize=(8, 2.2))
+    fig, ax = plt.subplots(figsize=(3.2, 1))
     ax.barh([""], [salary_high - salary_low], left=salary_low, color="#3498db", alpha=0.25, height=0.4)
     ax.plot(salary_avg, 0, marker="v", color="#2980b9", markersize=12, zorder=5)
-    ax.text(salary_avg, 0.28, f"Avg\n${salary_avg:,}", ha="center", va="bottom", fontsize=8, color="#2980b9", fontweight="bold")
-    ax.axvline(salary_low,  color="#95a5a6", linewidth=1.2, linestyle=":")
-    ax.text(salary_low,  -0.32, f"${salary_low:,}",  ha="center", va="top", fontsize=7.5, color="#7f8c8d")
-    ax.axvline(salary_high, color="#95a5a6", linewidth=1.2, linestyle=":")
-    ax.text(salary_high, -0.32, f"${salary_high:,}", ha="center", va="top", fontsize=7.5, color="#7f8c8d")
-    if offer and offer > 0:
+    ax.text(salary_avg, 0.28, f"Avg\n${salary_avg:,}", ha="center", va="bottom", fontsize=4, color="#2980b9", fontweight="bold")
+    ax.axvline(salary_low,  color="#e67e22", linewidth=1.5, linestyle=":")
+    ax.text(salary_low,  0.28, f"${salary_low:,}",  ha="center", va="bottom", fontsize=3, color="#e67e22", fontweight="bold")
+    ax.axvline(salary_high, color="#27ae60", linewidth=1.5, linestyle=":")
+    ax.text(salary_high, 0.28, f"${salary_high:,}", ha="center", va="bottom", fontsize=3, color="#27ae60", fontweight="bold")
+    if offers_list:
+        for i, (lbl, amt) in enumerate(offers_list):
+            color = "#27ae60" if amt >= salary_avg else "#e67e22"
+            ax.plot(amt, 0, marker="o", color=color, markersize=11, zorder=6+i)
+            ax.text(amt, 0.56 + i*0.18, f"{lbl}\n${amt:,}", ha="center", va="bottom",
+                    fontsize=7.5, color=color, fontweight="bold")
+    elif offer and offer > 0:
         color = "#27ae60" if offer >= salary_avg else "#e67e22"
         ax.plot(offer, 0, marker="o", color=color, markersize=11, zorder=6)
-        ax.text(offer, 0.28, f"{offer_label}\n${offer:,}", ha="center", va="bottom", fontsize=8, color=color, fontweight="bold")
+        ax.text(offer, 0.56, f"{offer_label}\n${offer:,}", ha="center", va="bottom", fontsize=3, color=color, fontweight="bold")
     ax.set_xlim(salary_low * 0.88, salary_high * 1.12)
+    ax.set_ylim(-0.6, 1.1)  # fixed height — prevents chart resizing when offer label is added
     ax.set_yticks([])
     ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     ax.spines[["top", "right", "left"]].set_visible(False)
-    ax.set_xlabel("Annual Salary (USD)", fontsize=9)
+    ax.set_xlabel("Annual Salary (USD)", fontsize=7)
     plt.tight_layout()
     st.pyplot(fig)
     plt.close(fig)
@@ -135,7 +186,7 @@ def _show_benchmark_yourself(result):
     p75    = benchmark.get("p75", 0)
     your_salary = result.get("salary_avg", 0)
 
-    fig, ax = plt.subplots(figsize=(7, 3))
+    fig, ax = plt.subplots(figsize=(5, 2.5))
 
     # Background band for p25–p75
     ax.barh(["Peer Range"], [p75 - p25], left=p25,
@@ -172,54 +223,94 @@ def _show_prediction_result(result):
 
     # Headline: matched job title
     st.markdown(f"## {matched_title}")
+    if result.get("title_fallback"):
+        original = result.get("original_job_title", "your title")
+        st.caption(f"⚠️ No exact match found for **{original}** — showing the closest available prediction based on **{matched_title}**.")
 
-    # Key metrics in columns
+    # Key metrics in columns — color coded
     m1, m2, m3 = st.columns(3)
-    m1.metric("Salary Low",  f"${salary_low:,}")
-    m2.metric("Salary Avg",  f"${salary_avg:,}")
-    m3.metric("Salary High", f"${salary_high:,}")
+    m1.markdown(f'<div style="background:#fef5ec;border:1px solid #e67e22;border-radius:8px;padding:14px 16px;text-align:center;"><div style="font-size:12px;color:#e67e22;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Low</div><div style="font-size:26px;font-weight:700;color:#e67e22;">${salary_low:,}</div></div>', unsafe_allow_html=True)
+    m2.markdown(f'<div style="background:#eaf4fd;border:1px solid #2980b9;border-radius:8px;padding:14px 16px;text-align:center;"><div style="font-size:12px;color:#2980b9;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Average</div><div style="font-size:26px;font-weight:700;color:#2980b9;">${salary_avg:,}</div></div>', unsafe_allow_html=True)
+    m3.markdown(f'<div style="background:#eafaf1;border:1px solid #27ae60;border-radius:8px;padding:14px 16px;text-align:center;"><div style="font-size:12px;color:#27ae60;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">High</div><div style="font-size:26px;font-weight:700;color:#27ae60;">${salary_high:,}</div></div>', unsafe_allow_html=True)
+    st.write("")  # spacing
 
-    # Range scale (no offer yet — offer added below via input)
+    # Range scale with offer input — constrained to half page width
     st.subheader("Salary Range Scale")
-    offer_input = st.number_input(
-        "Enter your offer amount (USD) to see where it lands:",
-        min_value=0, value=0, step=1000,
-        key="offer_input"
-    )
-    offer_val = int(offer_input) if offer_input and int(offer_input) > 0 else None
-    _draw_range_scale(salary_low, salary_avg, salary_high, offer=offer_val)
+    scale_col, _ = st.columns([1, 1])
+    with scale_col:
+        offer_input = st.number_input(
+            "Enter your offer amount (USD) to see where it lands:",
+            min_value=0, value=0, step=1000,
+            key="offer_input"
+        )
+        offer_val = int(offer_input) if int(offer_input) > 0 else None
+        _draw_range_scale(salary_low, salary_avg, salary_high, offer=offer_val)
 
     # Offer verdict
     if offer_val and offer_val > 0:
-        if offer_val >= salary_avg:
-            st.success(f"Your offer of ${offer_val:,} is at or above the average salary. That's a strong offer!")
+        if offer_val >= salary_high:
+            st.markdown(f'<div style="background:#d5f5e3;border-left:4px solid #27ae60;padding:10px 14px;border-radius:4px;color:#1e8449;">🎯 <strong>Excellent offer.</strong> ${offer_val:,} is at or above the high end of the market range.</div>', unsafe_allow_html=True)
+        elif offer_val >= salary_avg:
+            st.markdown(f'<div style="background:#d6eaf8;border-left:4px solid #2980b9;padding:10px 14px;border-radius:4px;color:#1a5276;">✅ <strong>Strong offer.</strong> ${offer_val:,} is above the average of ${salary_avg:,}.</div>', unsafe_allow_html=True)
+        elif offer_val >= salary_low:
+            st.markdown(f'<div style="background:#fef9e7;border-left:4px solid #e67e22;padding:10px 14px;border-radius:4px;color:#784212;">⚠️ <strong>Below average.</strong> ${offer_val:,} is below the market average of ${salary_avg:,}. There may be room to negotiate.</div>', unsafe_allow_html=True)
         else:
-            st.warning(f"Your offer of ${offer_val:,} is below the average salary of ${salary_avg:,}. There may be room to negotiate.")
+            st.markdown(f'<div style="background:#fdedec;border-left:4px solid #e74c3c;padding:10px 14px;border-radius:4px;color:#922b21;">🚨 <strong>Low offer.</strong> ${offer_val:,} is below the low end of the market range (${salary_low:,}). Consider negotiating.</div>', unsafe_allow_html=True)
 
-    # Benchmark
+    # Benchmark — room analogy
     if benchmark:
         st.subheader("Peer Benchmark")
-        b1, b2, b3, b4 = st.columns(4)
-        b1.metric("Peer Median", f"${benchmark.get('median', 0):,}")
-        b2.metric("25th Percentile", f"${benchmark.get('p25', 0):,}")
-        b3.metric("75th Percentile", f"${benchmark.get('p75', 0):,}")
-        b4.metric("Peer Count", benchmark.get("peer_count", 0))
+        peer_count = benchmark.get("peer_count", 0)
+        median     = benchmark.get("median", 0)
+        p25        = benchmark.get("p25", 0)
+        p75        = benchmark.get("p75", 0)
 
-    # Narrative
+        # Determine where the predicted avg sits relative to peers
+        if salary_avg >= p75:
+            position_line = f"Your predicted salary of <strong>${salary_avg:,}</strong> puts you in the <strong style='color:#27ae60;'>top 25%</strong> of your peers."
+        elif salary_avg >= median:
+            position_line = f"Your predicted salary of <strong>${salary_avg:,}</strong> puts you <strong style='color:#2980b9;'>above the median</strong> — better than half your peers."
+        elif salary_avg >= p25:
+            position_line = f"Your predicted salary of <strong>${salary_avg:,}</strong> puts you <strong style='color:#e67e22;'>below the median</strong> — room to grow."
+        else:
+            position_line = f"Your predicted salary of <strong>${salary_avg:,}</strong> puts you in the <strong style='color:#e74c3c;'>bottom 25%</strong> of your peers."
+
+        st.markdown(
+            f'<div style="background:#f8f9fa;border-left:4px solid #2980b9;padding:16px 18px;border-radius:6px;line-height:1.9;color:#2c3e50;font-size:15px;">'
+            f'If you were in a room with <strong>100 people</strong> who share your job conditions:<br>'
+            f'&nbsp;&nbsp;• 25 of them earn less than <strong>${p25:,}</strong><br>'
+            f'&nbsp;&nbsp;• Half earn less than <strong>${median:,}</strong> (the market median)<br>'
+            f'&nbsp;&nbsp;• Only 25 earn more than <strong>${p75:,}</strong><br><br>'
+            f'{position_line}<br>'
+            f'<span style="font-size:12px;color:#7f8c8d;">Based on {peer_count} data points.</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    # Benchmark yourself visual (below peer benchmark card)
+    with st.expander("📊 See how you compare visually", expanded=True):
+        _show_benchmark_yourself(result)
+
+    # Analyst Report
     st.subheader("Analyst Report")
-    st.write(narrative or "No narrative available.")
+    clean_narrative = (narrative or "No narrative available.")
+    clean_narrative = re.sub(r'\s*\((low|high|avg|average|median)\)', '', clean_narrative, flags=re.IGNORECASE)
+    st.markdown(
+        f'<div style="background:#f8f9fa;border-left:4px solid #3498db;padding:14px 16px;'
+        f'border-radius:4px;font-size:15px;line-height:1.7;color:#2c3e50;">{clean_narrative}</div>',
+        unsafe_allow_html=True
+    )
 
-    # Charts
-    chart_overview = result.get("chart_overview_url")
+    # Peer chart below analyst report
     chart_peer = result.get("chart_peer_url")
+    if chart_peer:
+        st.write("")
+        _, img_col, _ = st.columns([0.5, 3, 0.5])
+        img_col.image(chart_peer, caption="Salary by Experience Level", use_container_width=True)
 
-    if chart_overview or chart_peer:
-        st.subheader("Visualizations")
-        c1, c2 = st.columns(2)
-        if chart_overview:
-            c1.image(chart_overview, caption="Salary by Experience Level", use_container_width=True)
-        if chart_peer:
-            c2.image(chart_peer, caption="Your Position vs Peers", use_container_width=True)
+    # Feature importance
+    with st.expander("🔍 What factors influenced this prediction?", expanded=False):
+        _show_feature_importance(model)
 
     # Download report button
     range_str = f"${salary_low:,} – ${salary_high:,}"
@@ -247,58 +338,65 @@ Analyst Report:
         mime="text/plain"
     )
 
-    # Feature importance
-    with st.expander("Why did the model predict this? (Feature Importance)", expanded=False):
-        _show_feature_importance(model)
-
-    # Benchmark yourself visual
-    with st.expander("Benchmark Yourself", expanded=True):
-        _show_benchmark_yourself(result)
-
 
 st.title("💰 PayLens")
 st.caption("Intelligent salary prediction for data professionals")
 st.divider()
 
-tab_predict, tab_history, tab_market = st.tabs(["🔮 Predict", "📋 History", "📊 Market Insights"])
+tab_predict, tab_market, tab_history = st.tabs(["🔮 Predict", "📊 Market Insights", "📋 History"])
 
 with tab_predict:
-    col_form, col_result = st.columns([1, 2])
+    st.subheader("Your Job Details")
+    f_left, f_right = st.columns(2)
 
-    with col_form:
-        st.subheader("Your Job Details")
-
-        experience = st.selectbox(
-            "Experience Level",
-            options=EXP_OPTIONS,
-            format_func=lambda x: EXP_LABELS.get(x, x)
-        )
-        employment = st.selectbox(
-            "Employment Type",
-            options=EMP_OPTIONS,
-            format_func=lambda x: EMP_LABELS.get(x, x)
-        )
+    with f_left:
         job_title = st.text_input(
-            "Job Title",
+            "What's your job title?",
             placeholder="e.g. Data Scientist, ML Engineer",
             help="We'll match this to the nearest known title automatically"
         )
-        residence = st.selectbox("Country of Residence", options=COUNTRY_OPTIONS)
-        remote = st.select_slider(
-            "Remote Ratio",
-            options=[0, 50, 100],
-            value=100,
+        experience = st.selectbox(
+            "What's your experience level?",
+            options=EXP_OPTIONS,
+            format_func=lambda x: EXP_LABELS.get(x, x)
+        )
+        residence = st.selectbox(
+            "Where do you live?",
+            options=COUNTRY_OPTIONS,
+            format_func=lambda x: COUNTRY_NAMES.get(x, x)
+        )
+        company_name = st.text_input(
+            "Company name (optional)",
+            placeholder="e.g. Google, Accenture"
+        )
+
+    with f_right:
+        employment = st.selectbox(
+            "What's your employment type?",
+            options=EMP_OPTIONS,
+            format_func=lambda x: EMP_LABELS.get(x, x)
+        )
+        remote = st.selectbox(
+            "Where do you work from?",
+            options=[100, 50, 0],
             format_func=lambda x: {0: "On-site", 50: "Hybrid", 100: "Full Remote"}[x]
         )
-        company_loc = st.selectbox("Company Location", options=COUNTRY_OPTIONS)
+        company_loc = st.selectbox(
+            "Where is your company based?",
+            options=COUNTRY_OPTIONS,
+            format_func=lambda x: COUNTRY_NAMES.get(x, x)
+        )
         company_size = st.selectbox(
-            "Company Size",
-            options=SIZE_OPTIONS,
+            "How big is your company?",
+            options=["S", "M", "L"],
+            index=1,
             format_func=lambda x: SIZE_LABELS.get(x, x)
         )
 
-        predict_btn = st.button("🔮 Predict Salary", type="primary", use_container_width=True)
+    predict_btn = st.button("🔮 Predict Salary", type="primary", use_container_width=True)
+    st.divider()
 
+    col_result = st.container()
     with col_result:
         if predict_btn:
             if not job_title.strip():
@@ -314,7 +412,7 @@ with tab_predict:
                     "company_size":       company_size
                 }
 
-                with st.spinner("Predicting... (Ollama may take up to 30s)"):
+                with st.spinner("Analyzing your profile and generating your salary report…"):
                     result = run_prediction(job_input)
 
                 if result is None:
@@ -327,6 +425,8 @@ with tab_predict:
         if "last_result" in st.session_state:
             result = st.session_state["last_result"]
             _show_prediction_result(result)
+
+
 
 with tab_history:
     st.subheader("📋 Prediction History")
@@ -377,13 +477,15 @@ with tab_history:
 
         # Expandable detail view for each row
         st.subheader("🔍 Row Detail")
-        selected_idx = st.number_input(
-            "Enter row number to expand (0 = newest):",
-            min_value=0, max_value=max(0, len(df)-1), value=0, step=1
+        df["_label"] = df.apply(
+            lambda r: f"{r.get('matched_job_title','?')} — {EXP_LABELS.get(r.get('experience_level',''),'?')} — {pd.to_datetime(r.get('created_at','')).strftime('%Y-%m-%d %H:%M') if r.get('created_at') else ''}",
+            axis=1
         )
+        selected_label = st.selectbox("Select a prediction to expand:", df["_label"].tolist(), key="history_select")
+        selected_idx = df[df["_label"] == selected_label].index[0]
 
-        if st.button("📂 Expand Row", key="expand_row"):
-            row = df.iloc[int(selected_idx)]
+        if st.button("📂 Expand", key="expand_row"):
+            row = df.loc[selected_idx]
 
             sal_low  = int(row.get("salary_low",  0) or 0)
             sal_avg  = int(row.get("salary_avg",  0) or 0)
@@ -407,7 +509,13 @@ with tab_history:
             b4.metric("Peer Count", int(row.get("benchmark_peers", 0) or 0))
 
             st.subheader("📝 Analyst Report")
-            st.write(row.get("narrative", "No narrative available."))
+            hist_narrative = (row.get("narrative") or "No narrative available.")
+            hist_narrative = re.sub(r'\s*\((low|high|avg|average|median)\)', '', hist_narrative, flags=re.IGNORECASE)
+            st.markdown(
+                f'<div style="background:#f8f9fa;border-left:4px solid #3498db;padding:14px 16px;'
+                f'border-radius:4px;font-size:15px;line-height:1.7;color:#2c3e50;">{hist_narrative}</div>',
+                unsafe_allow_html=True
+            )
 
             # Charts from stored URLs
             chart_overview = row.get("chart_overview_url")
@@ -420,17 +528,18 @@ with tab_history:
                     c2.image(chart_peer, caption="Your Position vs Peers", use_container_width=True)
 
 with tab_market:
-    st.subheader("📊 Market Insights")
-    st.caption("Aggregated from all predictions in the database")
-
     df_market = load_history()
 
     if df_market.empty:
         st.info("No data yet. Run some predictions first to see market insights!")
     else:
-        mi1, mi2 = st.columns(2)
+        total_people = len(df_market)
+        _, mid_col, _ = st.columns([1, 2, 1])
+        with mid_col:
+            st.markdown(f"## Out of **{total_people}** people in your field:")
+            st.write("")
 
-        with mi1:
+            # Graph 1 — Salary Distribution
             st.markdown("**Salary Distribution**")
             if "salary_avg" in df_market.columns:
                 fig1, ax1 = plt.subplots(figsize=(5, 3))
@@ -445,28 +554,9 @@ with tab_market:
             else:
                 st.caption("salary_avg column not available.")
 
-        with mi2:
-            st.markdown("**Salary Range Spread by Experience**")
-            if "salary_low" in df_market.columns and "salary_high" in df_market.columns and "experience_level" in df_market.columns:
-                df_market = df_market.copy()
-                df_market["range_spread"] = df_market["salary_high"] - df_market["salary_low"]
-                exp_labels = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}
-                spread_by_exp = df_market.groupby("experience_level")["range_spread"].mean().sort_values(ascending=False)
-                spread_by_exp.index = [exp_labels.get(x, x) for x in spread_by_exp.index]
-                fig2, ax2 = plt.subplots(figsize=(5, 3))
-                ax2.bar(spread_by_exp.index, spread_by_exp.values, color="#9b59b6")
-                ax2.set_ylabel("Avg Range Spread (USD)")
-                ax2.set_title("Salary Range Spread by Experience")
-                ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
-                ax2.spines[["top", "right"]].set_visible(False)
-                st.pyplot(fig2)
-                plt.close(fig2)
-            else:
-                st.caption("Required salary columns not available.")
+            st.write("")
 
-        mi3, mi4 = st.columns(2)
-
-        with mi3:
+            # Graph 2 — Predictions by Experience Level
             st.markdown("**Predictions by Experience Level**")
             exp_counts = df_market["experience_level"].value_counts()
             exp_labels_map = {"EN": "Entry-level", "MI": "Mid-level", "SE": "Senior", "EX": "Executive"}
@@ -479,18 +569,22 @@ with tab_market:
             st.pyplot(fig3)
             plt.close(fig3)
 
-        with mi4:
+            st.write("")
+
+            # Graph 3 — Remote Work Distribution (half size)
             st.markdown("**Remote Work Distribution**")
             remote_counts = df_market["remote_ratio"].value_counts().sort_index()
             remote_labels = {0: "On-site", 50: "Hybrid", 100: "Full Remote"}
             remote_counts.index = [remote_labels.get(x, str(x)) for x in remote_counts.index]
-            fig4, ax4 = plt.subplots(figsize=(5, 3))
-            ax4.pie(remote_counts.values, labels=remote_counts.index,
-                    autopct="%1.0f%%", colors=["#e74c3c", "#f39c12", "#2ecc71"],
-                    startangle=90)
-            ax4.set_title("Remote Work Split")
-            st.pyplot(fig4)
-            plt.close(fig4)
+            pie_col, _ = st.columns([1, 1])
+            with pie_col:
+                fig4, ax4 = plt.subplots(figsize=(2.5, 2.5))
+                ax4.pie(remote_counts.values, labels=remote_counts.index,
+                        autopct="%1.0f%%", colors=["#e74c3c", "#f39c12", "#2ecc71"],
+                        startangle=90)
+                ax4.set_title("Remote Work Split", fontsize=9)
+                st.pyplot(fig4)
+                plt.close(fig4)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Premium Pitch Section
@@ -498,24 +592,16 @@ with tab_market:
 st.divider()
 st.markdown("## ✨ PayLens Premium — *Coming Soon*")
 
-pr1, pr2, pr3 = st.columns(3)
-
-with pr1:
-    st.markdown("""
+st.markdown("""
 **🤖 Real-Time LLM Coaching**
-Get a personalised salary negotiation script generated by GPT-4o, tailored to your exact title, location, and tier.
+
+Get a personalised salary negotiation script generated by GPT-4o, tailored to your exact title, location, and experience level.
 """)
 
-with pr2:
-    st.markdown("""
+st.markdown("""
 **📈 Salary Trajectory Planner**
-See a 3-year salary growth projection based on market trends and your current experience level.
-""")
 
-with pr3:
-    st.markdown("""
-**🌍 Global Salary Comparison**
-Compare your salary tier across 50+ countries — identify relocation opportunities and remote premium markets.
+See a 3-year salary growth projection based on market trends and your current experience level.
 """)
 
 st.button("💬 Join the Waitlist", type="secondary", disabled=True)
