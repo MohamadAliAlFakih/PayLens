@@ -592,7 +592,7 @@ with tab_market:
                 ax1.set_xlabel("Predicted Salary Avg (USD)")
                 ax1.set_ylabel("Count")
                 ax1.set_title("Salary Avg Distribution")
-                ax1.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+                ax1.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x/1000:.0f}k"))
                 ax1.spines[["top", "right"]].set_visible(False)
                 st.pyplot(fig1)
                 plt.close(fig1)
