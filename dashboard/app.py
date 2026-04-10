@@ -273,36 +273,17 @@ def _show_prediction_result(result):
     m3.markdown(f'<div style="background:#eafaf1;border:1px solid #27ae60;border-radius:8px;padding:14px 16px;text-align:center;"><div style="font-size:12px;color:#27ae60;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">High</div><div style="font-size:26px;font-weight:700;color:#27ae60;">${salary_high:,}</div></div>', unsafe_allow_html=True)
     st.write("")  # spacing
 
-    # 2×2 chart grid — all four charts at equal width and height
-    st.subheader("Charts")
-    ch1, ch2 = st.columns(2)
-    ch3, ch4 = st.columns(2)
-
-    with ch1:
-        st.caption("Salary Range Scale")
+    # Salary Range Scale
+    st.subheader("Salary Range Scale")
+    scale_col, _ = st.columns([1, 1])
+    with scale_col:
         offer_input = st.number_input(
-            "Enter your offer (USD):",
+            "Enter your offer amount (USD) to see where it lands:",
             min_value=0, value=0, step=1000,
             key="offer_input"
         )
         offer_val = int(offer_input) if int(offer_input) > 0 else None
         _draw_range_scale(salary_low, salary_avg, salary_high, offer=offer_val)
-
-    with ch2:
-        st.caption("Peer Benchmark")
-        _show_benchmark_yourself(result)
-
-    with ch3:
-        st.caption("What Drives Your Salary Prediction")
-        _show_feature_importance(model)
-
-    with ch4:
-        chart_peer = result.get("chart_peer_url")
-        st.caption("Salary by Experience Level")
-        if chart_peer:
-            st.image(chart_peer, use_container_width=True)
-        else:
-            st.caption("Chart not available.")
 
     # Offer verdict
     if offer_val and offer_val > 0:
@@ -345,6 +326,10 @@ def _show_prediction_result(result):
             unsafe_allow_html=True
         )
 
+    # Benchmark yourself visual
+    with st.expander("📊 See how you compare visually", expanded=True):
+        _show_benchmark_yourself(result)
+
     # Analyst Report
     st.subheader("Analyst Report")
     clean_narrative = (narrative or "No narrative available.")
@@ -354,6 +339,17 @@ def _show_prediction_result(result):
         f'border-radius:4px;font-size:15px;line-height:1.7;color:#2c3e50;">{clean_narrative}</div>',
         unsafe_allow_html=True
     )
+
+    # Peer chart
+    chart_peer = result.get("chart_peer_url")
+    if chart_peer:
+        st.write("")
+        _, img_col, _ = st.columns([0.5, 3, 0.5])
+        img_col.image(chart_peer, caption="Salary by Experience Level", use_container_width=True)
+
+    # Feature importance
+    with st.expander("🔍 What factors influenced this prediction?", expanded=False):
+        _show_feature_importance(model)
 
     # Download report button
     range_str = f"${salary_low:,} – ${salary_high:,}"
