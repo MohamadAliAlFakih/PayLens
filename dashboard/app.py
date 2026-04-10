@@ -18,7 +18,6 @@ from pipeline.predict import run_prediction
 
 st.set_page_config(
     page_title="PayLens",
-    page_icon="💰",
     layout="wide"
 )
 
@@ -30,7 +29,7 @@ st.markdown("""
     }
     /* Inject PayLens title text into the left side of the header */
     header[data-testid="stHeader"]::before {
-        content: "💰 PayLens  —  Intelligent salary prediction for data professionals";
+        content: "PayLens - Intelligent Salary Insights for Data Professionals";
         color: white;
         font-size: 16px;
         font-weight: 700;
@@ -39,6 +38,17 @@ st.markdown("""
         top: 50%;
         transform: translateY(-50%);
         white-space: nowrap;
+    }
+    /* Blue tab active/hover accent (replaces default red) */
+    button[data-baseweb="tab"] {
+        color: #555 !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #2980b9 !important;
+        border-bottom-color: #2980b9 !important;
+    }
+    button[data-baseweb="tab"]:hover {
+        color: #2980b9 !important;
     }
     /* Blue primary button */
     div.stButton > button[kind="primary"] {
@@ -424,7 +434,7 @@ with tab_predict:
             format_func=lambda x: SIZE_LABELS.get(x, x)
         )
 
-    predict_btn = st.button("🔮 Predict Salary", type="primary", use_container_width=True)
+    predict_btn = st.button("Predict Salary", type="primary", use_container_width=True)
     st.divider()
 
     col_result = st.container()
