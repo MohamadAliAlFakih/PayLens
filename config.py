@@ -53,9 +53,9 @@ SUPABASE_KEY = _get_secret("SUPABASE_KEY")
 # The local LLM model name - change this if you pull a different model
 OLLAMA_MODEL = "mistral"
 
-# OpenAI API key — set on cloud deployments to enable LLM narrative via GPT-3.5
+# Gemini API key — set on cloud deployments to enable LLM narrative via Gemini
 # Leave unset locally to use Ollama instead
-OPENAI_API_KEY = _get_secret("OPENAI_API_KEY")
+GEMINI_API_KEY = _get_secret("GEMINI_API_KEY")
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 LOG_FILE = os.path.join(BASE_DIR, "logs", "pipeline.log")

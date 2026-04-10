@@ -1,5 +1,5 @@
 # pipeline/narrative.py
-# Generates a written salary analyst narrative using Ollama/Mistral.
+# Generates a written salary analyst narrative using Gemini (cloud) or Ollama (local).
 # Called by pipeline/predict.py after a prediction is made.
 
 import os
@@ -59,20 +59,16 @@ Rules:
 - Focus on: (1) what this range means for their profile, (2) how their average compares to the peer median, (3) one actionable tip
 - No generic advice. Be specific."""
 
-    # --- OpenAI path (cloud) ---
-    if config.OPENAI_API_KEY:
+    # --- Gemini path (cloud) ---
+    if config.GEMINI_API_KEY:
         try:
-            import openai
-            client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300,
-                temperature=0.7
-            )
-            return response.choices[0].message.content.strip()
+            import google.generativeai as genai
+            genai.configure(api_key=config.GEMINI_API_KEY)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt)
+            return response.text.strip()
         except Exception as e:
-            print(f"Warning: OpenAI unavailable: {e}")
+            print(f"Warning: Gemini unavailable: {e}")
             return fallback
 
     # --- Ollama path (local) ---
