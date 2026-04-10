@@ -418,9 +418,15 @@ with tab_predict:
                 with st.spinner("Analyzing your profile and generating your salary report…"):
                     result = run_prediction(job_input)
 
-                if result is None:
+                if result is None or (isinstance(result, dict) and "_error" in result):
                     api_url = st.secrets.get("API_URL", "http://127.0.0.1:8000/predict")
-                    st.error(f"Prediction failed. Could not reach the API at: `{api_url}` — check that the Render service is running and that API_URL is set correctly in Streamlit secrets.")
+                    if isinstance(result, dict) and "_error" in result:
+                        st.error(f"Prediction failed: {result['_error']}")
+                        if result.get("_traceback"):
+                            with st.expander("Full traceback (for debugging)"):
+                                st.code(result["_traceback"])
+                    else:
+                        st.error(f"Prediction failed. Could not reach the API at: `{api_url}` — check that the Render service is running and that API_URL is set correctly in Streamlit secrets.")
                 else:
                     # Store result in session state so it persists on re-render
                     st.session_state["last_result"] = result

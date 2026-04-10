@@ -5,6 +5,7 @@
 
 import os
 import sys
+import traceback
 import joblib
 import requests
 from supabase import create_client
@@ -55,6 +56,17 @@ def run_prediction(job_input: dict) -> dict:
         Returns None if the API is unreachable or returns an HTTP error.
     """
 
+    try:
+        return _run_prediction_inner(job_input)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print("FATAL ERROR in run_prediction:\n", tb)
+        return {"_error": str(e), "_traceback": tb}
+
+
+def _run_prediction_inner(job_input: dict) -> dict:
+    """Internal implementation — called by run_prediction() which wraps it in a catch-all."""
+
     # ------------------------------------------------------------------
     # Step 1 — Call the FastAPI /predict endpoint
     # Read API_URL here (not at import time) so st.secrets is available.
@@ -71,14 +83,11 @@ def run_prediction(job_input: dict) -> dict:
         response.raise_for_status()  # raises HTTPError for 4xx/5xx responses
         api_result = response.json()
     except requests.exceptions.ConnectionError:
-        print(f"Error: could not reach API at {api_url}")
-        return None
+        return {"_error": f"ConnectionError: could not reach API at {api_url}"}
     except requests.exceptions.Timeout:
-        print(f"Error: request to {api_url} timed out")
-        return None
+        return {"_error": f"Timeout: request to {api_url} timed out after 60s"}
     except requests.exceptions.HTTPError as e:
-        print(f"Error from API ({config.API_URL}): {e}")
-        return None
+        return {"_error": f"HTTPError from API at {api_url}: {e}"}
 
     # ------------------------------------------------------------------
     # Step 2 — Extract values needed for chart generation
