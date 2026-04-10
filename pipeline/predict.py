@@ -27,7 +27,12 @@ benchmarks = joblib.load(BENCHMARKS_PATH)
 
 # Supabase client — initialized once at module level
 # Used by save_prediction() to persist results to the cloud database
-supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
+try:
+    supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
+except Exception as _supabase_init_err:
+    print(f"Warning: Supabase client could not be initialised ({_supabase_init_err}). "
+          "Predictions will not be saved to the database.")
+    supabase = None
 
 
 def run_prediction(job_input: dict) -> dict:
