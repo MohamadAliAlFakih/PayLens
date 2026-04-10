@@ -419,7 +419,7 @@ with tab_predict:
                     result = run_prediction(job_input)
 
                 if result is None:
-                    st.error("Prediction failed. Make sure the FastAPI server is running on port 8000.")
+                    st.error(f"Prediction failed. Could not reach the API at: `{config.API_URL}` — check that the Render service is running and that API_URL is set correctly in Streamlit secrets.")
                 else:
                     # Store result in session state so it persists on re-render
                     st.session_state["last_result"] = result

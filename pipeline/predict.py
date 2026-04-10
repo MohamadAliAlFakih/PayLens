@@ -61,14 +61,17 @@ def run_prediction(job_input: dict) -> dict:
     # to respond or the connection stalls mid-request.
     # ------------------------------------------------------------------
     try:
-        response = requests.post(config.API_URL, json=job_input, timeout=10)
+        response = requests.post(config.API_URL, json=job_input, timeout=60)
         response.raise_for_status()  # raises HTTPError for 4xx/5xx responses
         api_result = response.json()
     except requests.exceptions.ConnectionError:
-        print("Error: FastAPI server is not running. Start it with: uvicorn api.main:app --port 8000")
+        print(f"Error: could not reach API at {config.API_URL}")
+        return None
+    except requests.exceptions.Timeout:
+        print(f"Error: request to {config.API_URL} timed out")
         return None
     except requests.exceptions.HTTPError as e:
-        print("Error from API:", e)
+        print(f"Error from API ({config.API_URL}): {e}")
         return None
 
     # ------------------------------------------------------------------
