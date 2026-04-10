@@ -23,6 +23,8 @@ st.set_page_config(
 )
 
 # Initialize Supabase client once
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
 
 # @st.cache_resource loads this once per session (not on every re-render)
