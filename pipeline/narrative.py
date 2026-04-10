@@ -60,10 +60,17 @@ Rules:
 - No generic advice. Be specific."""
 
     # --- Gemini path (cloud) ---
-    if config.GEMINI_API_KEY:
+    # Read at call time so st.secrets is available (not frozen at import time)
+    try:
+        import streamlit as st
+        gemini_key = st.secrets.get("GEMINI_API_KEY")
+    except Exception:
+        gemini_key = os.getenv("GEMINI_API_KEY")
+
+    if gemini_key:
         try:
             import google.generativeai as genai
-            genai.configure(api_key=config.GEMINI_API_KEY)
+            genai.configure(api_key=gemini_key)
             model = genai.GenerativeModel("gemini-1.5-flash")
             response = model.generate_content(prompt)
             return response.text.strip()
