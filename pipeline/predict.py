@@ -61,7 +61,11 @@ def run_prediction(job_input: dict) -> dict:
     # On Streamlit Cloud, module-level config values are frozen before
     # st.secrets is ready — reading at call time gets the correct value.
     # ------------------------------------------------------------------
-    api_url = config._get_secret("API_URL", "http://127.0.0.1:8000/predict")
+    try:
+        import streamlit as st
+        api_url = st.secrets.get("API_URL", "http://127.0.0.1:8000/predict")
+    except Exception:
+        api_url = os.getenv("API_URL", "http://127.0.0.1:8000/predict")
     try:
         response = requests.post(api_url, json=job_input, timeout=60)
         response.raise_for_status()  # raises HTTPError for 4xx/5xx responses
