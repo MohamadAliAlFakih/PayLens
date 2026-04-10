@@ -327,7 +327,8 @@ def _show_prediction_result(result):
         )
 
     # Benchmark yourself visual
-    with st.expander("📊 See how you compare visually", expanded=True):
+    bench_col, _ = st.columns([1, 1])
+    with bench_col:
         _show_benchmark_yourself(result)
 
     # Analyst Report
@@ -343,12 +344,13 @@ def _show_prediction_result(result):
     # Peer chart
     chart_peer = result.get("chart_peer_url")
     if chart_peer:
-        st.write("")
-        _, img_col, _ = st.columns([0.5, 3, 0.5])
-        img_col.image(chart_peer, caption="Salary by Experience Level", use_container_width=True)
+        peer_col, _ = st.columns([1, 1])
+        with peer_col:
+            st.image(chart_peer, caption="Salary by Experience Level", use_container_width=True)
 
     # Feature importance
-    with st.expander("🔍 What factors influenced this prediction?", expanded=False):
+    fi_col, _ = st.columns([1, 1])
+    with fi_col:
         _show_feature_importance(model)
 
     # Download report button
