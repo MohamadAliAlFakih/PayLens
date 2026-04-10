@@ -419,7 +419,8 @@ with tab_predict:
                     result = run_prediction(job_input)
 
                 if result is None:
-                    st.error(f"Prediction failed. Could not reach the API at: `{config.API_URL}` — check that the Render service is running and that API_URL is set correctly in Streamlit secrets.")
+                    api_url = config._get_secret("API_URL", "http://127.0.0.1:8000/predict")
+                    st.error(f"Prediction failed. Could not reach the API at: `{api_url}` — check that the Render service is running and that API_URL is set correctly in Streamlit secrets.")
                 else:
                     # Store result in session state so it persists on re-render
                     st.session_state["last_result"] = result

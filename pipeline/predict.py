@@ -57,18 +57,20 @@ def run_prediction(job_input: dict) -> dict:
 
     # ------------------------------------------------------------------
     # Step 1 — Call the FastAPI /predict endpoint
-    # timeout=10 prevents the function from hanging if the server is slow
-    # to respond or the connection stalls mid-request.
+    # Read API_URL here (not at import time) so st.secrets is available.
+    # On Streamlit Cloud, module-level config values are frozen before
+    # st.secrets is ready — reading at call time gets the correct value.
     # ------------------------------------------------------------------
+    api_url = config._get_secret("API_URL", "http://127.0.0.1:8000/predict")
     try:
-        response = requests.post(config.API_URL, json=job_input, timeout=60)
+        response = requests.post(api_url, json=job_input, timeout=60)
         response.raise_for_status()  # raises HTTPError for 4xx/5xx responses
         api_result = response.json()
     except requests.exceptions.ConnectionError:
-        print(f"Error: could not reach API at {config.API_URL}")
+        print(f"Error: could not reach API at {api_url}")
         return None
     except requests.exceptions.Timeout:
-        print(f"Error: request to {config.API_URL} timed out")
+        print(f"Error: request to {api_url} timed out")
         return None
     except requests.exceptions.HTTPError as e:
         print(f"Error from API ({config.API_URL}): {e}")
